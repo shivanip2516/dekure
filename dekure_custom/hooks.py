@@ -5,6 +5,26 @@ app_description = "Customizations for Dekure"
 app_email = "shivani.panwar@vigisolvo.com"
 app_license = "mit"
 
+fixtures = [
+    {
+        "dt": "Custom Field",
+        "filters": [["dt", "=", "Quotation"]]
+    },
+    {
+        "dt": "Custom Field",
+        "filters": [["dt", "=", "Delivery Note"]]
+    },
+    {
+        "dt": "Custom Field",
+        "filters": [["dt", "=", "Sales Invoice"]]
+    },
+    {
+        "dt": "Custom Field",
+        "filters": [["dt", "=", "Sales Order"]]
+    }
+    # {"dt": "Custom Field", "filters": [["module", "=", "crpe_custom"]]},
+]
+
 # Apps
 # ------------------
 

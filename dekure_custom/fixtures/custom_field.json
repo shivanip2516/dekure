@@ -1,0 +1,50 @@
+[
+    {
+        "doctype": "Custom Field",
+        "name": "Quotation-remark",
+        "dt": "Quotation",
+        "fieldname": "remark",
+        "fieldtype": "Long Text",
+        "label": "Remark",
+        "insert_after": "party_name",
+        "in_list_view": 0,
+        "reqd": 0,
+        "read_only": 0
+    },
+    {
+        "doctype": "Custom Field",
+        "name": "Delivery Note-remark",
+        "dt": "Delivery Note",
+        "fieldname": "remark",
+        "fieldtype": "Long Text",
+        "label": "Remark",
+        "insert_after": "posting_time",
+        "in_list_view": 0,
+        "reqd": 0,
+        "read_only": 0
+    },
+    {
+    "doctype": "Custom Field",
+    "name": "Sales Invoice-remark",
+    "dt": "Sales Invoice",
+    "fieldname": "remark",
+    "fieldtype": "Long Text",
+    "label": "Remark",
+    "insert_after": "customer",
+    "in_list_view": 0,
+    "reqd": 0,
+    "read_only": 0
+    },
+    {
+    "doctype": "Custom Field",
+    "name": "Sales Order-remark",
+    "dt": "Sales Order",
+    "fieldname": "remark",
+    "fieldtype": "Long Text",
+    "label": "Remark",
+    "insert_after": "customer",
+    "in_list_view": 0,
+    "reqd": 0,
+    "read_only": 0
+    }
+]
