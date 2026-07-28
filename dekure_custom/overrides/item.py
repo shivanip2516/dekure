@@ -18,6 +18,7 @@ ITEM_VARIANT_ABBREVIATION_FIELD = "item_abbreviation"
 SPARE_PART_FIELD = "spare_part"
 SPARE_PART_DOCTYPE = "Spare Part"
 SPARE_PART_ABBREVIATION_FIELD = "abbreviation"
+NUMBER_FIELD = "number"
 SERVICE_FIELD = "services"
 SERVICE_ABBREVIATION_FIELD = "abbreviation"
 SERVICE_CODE_PREFIX = "SER"
@@ -44,18 +45,14 @@ def generate_item_code(doc, method=None):
 			return
 
 		prefix = build_product_prefix(doc) if item_group in PRODUCT_ITEM_GROUPS else build_service_prefix(doc)
-		sequence = get_next_sequence(prefix)
-		item_code = f"{prefix}/{sequence}"
+		item_code = build_item_code_with_number(doc, prefix)
 
 		if frappe.db.exists("Item", item_code):
-			frappe.throw(_("Cannot generate Item Code because Item Code already exists: {0}").format(item_code))
+			throw_duplicate_item_code(item_code)
 
 		doc.item_code = item_code
 		doc.name = item_code
 		doc.flags.dekure_custom_item_code_generated = True
-
-		if doc.meta.has_field("number"):
-			doc.number = sequence
 
 
 def rename_variant_item_code_if_ready(doc, method=None):
@@ -79,15 +76,10 @@ def rename_variant_item_code_if_ready(doc, method=None):
 
 	with filelock("dekure_custom_item_code_generation", timeout=30):
 		prefix = build_product_prefix(doc)
-		sequence = get_next_sequence(prefix)
-		generated_item_code = f"{prefix}/{sequence}"
+		generated_item_code = build_item_code_with_number(doc, prefix)
 
 		if frappe.db.exists("Item", generated_item_code):
-			frappe.throw(
-				_("Cannot generate Item Code because Item Code already exists: {0}").format(
-					generated_item_code
-				)
-			)
+			throw_duplicate_item_code(generated_item_code)
 
 		doc.flags.dekure_custom_renaming_item_code = True
 		frappe.flags.dekure_custom_renaming_item_code = True
@@ -250,6 +242,34 @@ def get_service_type_abbreviation(doc):
 	return segment
 
 
+def build_item_code_with_number(doc, prefix):
+	number_value = get_required_number(doc)
+	return f"{prefix}/{number_value}"
+
+
+def get_required_number(doc):
+	if not doc.meta.has_field(NUMBER_FIELD):
+		frappe.throw(_("Cannot generate Item Code because Number field does not exist: {0}.").format(NUMBER_FIELD))
+
+	number_value = sanitize_number(doc.get(NUMBER_FIELD))
+	if not number_value:
+		frappe.throw(_("Cannot generate Item Code because Number is missing."))
+
+	return number_value
+
+
+def sanitize_number(value):
+	value = cstr(value).strip()
+	if not value:
+		return ""
+
+	return value.replace("/", "-")
+
+
+def throw_duplicate_item_code(item_code):
+	frappe.throw(_("Item Code {0} already exists. Please enter a different Number.").format(item_code))
+
+
 def get_required_field_abbreviation(doc, fieldname, label):
 	if not doc.meta.has_field(fieldname):
 		frappe.throw(_("Cannot generate Item Code because {0} field does not exist: {1}.").format(label, fieldname))
@@ -310,42 +330,3 @@ def build_prefix(parts):
 		frappe.throw(_("Cannot generate Item Code because one or more code segments are blank."))
 
 	return "/".join(parts)
-
-
-def get_next_sequence(prefix):
-	item_codes = frappe.get_all(
-		"Item",
-		filters=[
-			["item_code", ">=", f"{prefix}/"],
-			["item_code", "<", f"{prefix}0"],
-		],
-		pluck="item_code",
-	)
-	max_sequence = 0
-
-	for item_code in item_codes:
-		sequence = get_sequence_from_item_code(prefix, item_code)
-		if sequence is not None:
-			max_sequence = max(max_sequence, sequence)
-
-	next_sequence = max_sequence + 1
-	if next_sequence > 999:
-		frappe.throw(_("Cannot generate Item Code because sequence limit reached for prefix: {0}.").format(prefix))
-
-	return f"{next_sequence:03d}"
-
-
-def get_sequence_from_item_code(prefix, item_code):
-	item_code = cstr(item_code)
-	expected_prefix = f"{prefix}/"
-	if not item_code.startswith(expected_prefix):
-		return None
-
-	sequence = item_code.removeprefix(expected_prefix)
-	if "/" in sequence:
-		return None
-
-	if not re.fullmatch(r"\d{3}", sequence):
-		return None
-
-	return int(sequence)
