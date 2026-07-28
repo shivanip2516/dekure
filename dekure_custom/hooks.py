@@ -6,24 +6,25 @@ app_email = "shivani.panwar@vigisolvo.com"
 app_license = "mit"
 
 fixtures = [
-    {
-        "dt": "Custom Field",
-        "filters": [["dt", "=", "Quotation"]]
-    },
-    {
-        "dt": "Custom Field",
-        "filters": [["dt", "=", "Delivery Note"]]
-    },
-    {
-        "dt": "Custom Field",
-        "filters": [["dt", "=", "Sales Invoice"]]
-    },
-    {
-        "dt": "Custom Field",
-        "filters": [["dt", "=", "Sales Order"]]
-    }
-    # {"dt": "Custom Field", "filters": [["module", "=", "crpe_custom"]]},
+    {"dt": "Custom Field", "filters": [["dt", "in", ["Quotation", "Delivery Note", "Sales Invoice", "Sales Order"]]]},
+    {"dt": "Custom Field", "filters": [["name", "in", ["Item-spare_part", "Item-number", "Item-services", "Item-item_abbreviation", "Brand-b_abbreviation"]]]},
+    {"dt": "Property Setter", "filters": [["name", "in", ["Item-item_code-reqd", "Item-item_code-read_only"]]]}
 ]
+ 
+
+doc_events = {
+    "Item": {
+        "before_naming": "dekure_custom.overrides.item.generate_item_code",
+        "before_insert": "dekure_custom.overrides.item.generate_item_code",
+        "on_update": "dekure_custom.overrides.item.rename_variant_item_code_if_ready"
+    }
+}
+
+override_whitelisted_methods = {
+    "erpnext.controllers.item_variant.create_variant": "dekure_custom.overrides.item_variant.create_variant",
+    "erpnext.controllers.item_variant.create_variant_doc_for_quick_entry": "dekure_custom.overrides.item_variant.create_variant_doc_for_quick_entry",
+    "erpnext.controllers.item_variant.enqueue_multiple_variant_creation": "dekure_custom.overrides.item_variant.enqueue_multiple_variant_creation",
+}
 
 # Apps
 # ------------------
@@ -63,7 +64,7 @@ fixtures = [
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-# doctype_js = {"doctype" : "public/js/doctype.js"}
+doctype_js = {"Item": "public/js/item.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
@@ -275,4 +276,3 @@ fixtures = [
 # ------------
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
-

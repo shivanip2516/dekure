@@ -46,5 +46,63 @@
     "in_list_view": 0,
     "reqd": 0,
     "read_only": 0
-    }
+    },
+    {
+        "doctype": "Custom Field",
+        "name": "Item-spare_part",
+        "dt": "Item",
+        "fieldname": "spare_part",
+        "fieldtype": "Link",
+        "label": "Spare Part",
+        "options": "Spare Part",
+        "insert_after": "item_group",
+        "in_list_view": 0,
+        "reqd": 0,
+        "read_only": 0
+    },
+    {
+        "doctype": "Custom Field",
+        "name": "Item-number",
+        "dt": "Item",
+        "fieldname": "number",
+        "fieldtype": "Data",
+        "label": "Number",
+        "insert_after": "spare_part",
+        "in_list_view": 0,
+        "reqd": 0,
+        "read_only": 0
+    },
+    {
+        "doctype": "Custom Field",
+        "name": "Item-services",
+        "dt": "Item",
+        "fieldname": "services",
+        "fieldtype": "Link",
+        "label": "Service Type",
+        "options": "Services",
+        "insert_after": "number",
+        "in_list_view": 0,
+        "reqd": 0,
+        "read_only": 0
+    },
+    {
+    "doctype": "Custom Field",
+    "dt": "Item",
+    "name": "Item-item_abbreviation",
+    "fieldname": "item_abbreviation",
+    "fieldtype": "Data",
+    "label": "Item Abbreviation",
+    "insert_after": "item_name",
+    "unique": 1
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "Brand",
+    "name": "Brand-b_abbreviation",
+    "fieldname": "b_abbreviation",
+    "fieldtype": "Data",
+    "label": "Brand Abbreviation",
+    "insert_after": "brand",
+    "unique": 1
+  }
 ]
