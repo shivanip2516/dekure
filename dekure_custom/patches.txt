@@ -5,3 +5,4 @@
 [post_model_sync]
 # Patches added in this section will be executed after doctypes are migrated
 dekure_custom.patches.v1_0.set_item_code_properties
+dekure_custom.patches.v1_0.create_item_attribute_item_code_flag

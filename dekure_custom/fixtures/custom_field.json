@@ -104,5 +104,15 @@
     "label": "Brand Abbreviation",
     "insert_after": "brand",
     "unique": 1
+  },
+  {
+    "doctype": "Custom Field",
+    "dt": "Item Attribute",
+    "name": "Item Attribute-use_for_item_code",
+    "fieldname": "use_for_item_code",
+    "fieldtype": "Check",
+    "label": "Use for Item Code",
+    "insert_after": "disabled",
+    "default": "1"
   }
 ]

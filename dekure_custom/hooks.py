@@ -7,16 +7,15 @@ app_license = "mit"
 
 fixtures = [
     {"dt": "Custom Field", "filters": [["dt", "in", ["Quotation", "Delivery Note", "Sales Invoice", "Sales Order"]]]},
-    {"dt": "Custom Field", "filters": [["name", "in", ["Item-spare_part", "Item-number", "Item-services", "Item-item_abbreviation", "Brand-b_abbreviation"]]]},
+    {"dt": "Custom Field", "filters": [["name", "in", ["Item-spare_part", "Item-number", "Item-services", "Item-item_abbreviation", "Brand-b_abbreviation", "Item Attribute-use_for_item_code"]]]},
     {"dt": "Property Setter", "filters": [["name", "in", ["Item-item_code-reqd", "Item-item_code-read_only"]]]}
 ]
  
 
 doc_events = {
     "Item": {
-        "before_naming": "dekure_custom.overrides.item.generate_item_code",
-        "before_insert": "dekure_custom.overrides.item.generate_item_code",
-        "on_update": "dekure_custom.overrides.item.rename_variant_item_code_if_ready"
+        "before_naming": "dekure_custom.overrides.item.before_insert_item",
+        "before_insert": "dekure_custom.overrides.item.before_insert_item"
     }
 }
 
