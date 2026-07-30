@@ -62,25 +62,13 @@
     },
     {
         "doctype": "Custom Field",
-        "name": "Item-number",
-        "dt": "Item",
-        "fieldname": "number",
-        "fieldtype": "Data",
-        "label": "Number",
-        "insert_after": "spare_part",
-        "in_list_view": 0,
-        "reqd": 0,
-        "read_only": 0
-    },
-    {
-        "doctype": "Custom Field",
         "name": "Item-services",
         "dt": "Item",
         "fieldname": "services",
         "fieldtype": "Link",
         "label": "Service Type",
         "options": "Services",
-        "insert_after": "number",
+        "insert_after": "spare_part",
         "in_list_view": 0,
         "reqd": 0,
         "read_only": 0
@@ -113,6 +101,6 @@
     "fieldtype": "Check",
     "label": "Use for Item Code",
     "insert_after": "disabled",
-    "default": "1"
+    "default": "0"
   }
 ]

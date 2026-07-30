@@ -18,7 +18,6 @@ ITEM_VARIANT_ABBREVIATION_FIELD = "item_abbreviation"
 SPARE_PART_FIELD = "spare_part"
 SPARE_PART_DOCTYPE = "Spare Part"
 SPARE_PART_ABBREVIATION_FIELD = "abbreviation"
-NUMBER_FIELD = "number"
 SERVICE_FIELD = "services"
 SERVICE_ABBREVIATION_FIELD = "abbreviation"
 SERVICE_CODE_PREFIX = "SER"
@@ -34,7 +33,7 @@ ITEM_ATTRIBUTE_DOCTYPE = "Item Attribute"
 ITEM_ATTRIBUTE_VALUES_FIELD = "item_attribute_values"
 ITEM_ATTRIBUTE_VALUE_DOCTYPE = "Item Attribute Value"
 ITEM_ATTRIBUTE_VALUE_FIELD = "attribute_value"
-ITEM_ATTRIBUTE_VALUE_NUMBER_FIELD = "a_number"
+ITEM_ATTRIBUTE_VALUE_ABBREVIATION_FIELD = "abbr"
 USE_FOR_ITEM_CODE_FIELD = "use_for_item_code"
 
 
@@ -54,8 +53,7 @@ def generate_item_code(doc, method=None):
 		return
 
 	with filelock("dekure_custom_item_code_generation", timeout=30):
-		prefix = build_product_prefix(doc) if item_group in PRODUCT_ITEM_GROUPS else build_service_prefix(doc)
-		item_code = build_item_code_with_number(doc, prefix)
+		item_code = build_product_prefix(doc) if item_group in PRODUCT_ITEM_GROUPS else build_service_prefix(doc)
 
 		if frappe.db.exists("Item", item_code):
 			throw_duplicate_item_code(item_code)
@@ -201,32 +199,8 @@ def get_service_type_abbreviation(doc):
 	return segment
 
 
-def build_item_code_with_number(doc, prefix):
-	number_value = get_required_number(doc)
-	return f"{prefix}/{number_value}"
-
-
-def get_required_number(doc):
-	if not doc.meta.has_field(NUMBER_FIELD):
-		frappe.throw(_("Cannot generate Item Code because Number field does not exist: {0}.").format(NUMBER_FIELD))
-
-	number_value = sanitize_number(doc.get(NUMBER_FIELD))
-	if not number_value:
-		frappe.throw(_("Cannot generate Item Code because Number is missing."))
-
-	return number_value
-
-
-def sanitize_number(value):
-	value = cstr(value).strip()
-	if not value:
-		return ""
-
-	return value.replace("/", "-")
-
-
 def throw_duplicate_item_code(item_code):
-	frappe.throw(_("Item Code {0} already exists. Check the selected Attribute Value and Number.").format(item_code))
+	frappe.throw(_("Item Code {0} already exists. Check the selected Item attributes and abbreviations.").format(item_code))
 
 
 def populate_variant_fields_from_item_attribute(doc):
@@ -235,13 +209,12 @@ def populate_variant_fields_from_item_attribute(doc):
 
 	selected = get_item_code_variant_attribute(doc)
 	attribute_value = selected[VARIANT_ATTRIBUTE_VALUE_FIELD]
-	number_value = get_attribute_value_number(
+	attribute_abbreviation = get_attribute_value_abbreviation(
 		attribute_name=selected[VARIANT_ATTRIBUTE_FIELD],
 		attribute_value=attribute_value,
 	)
 
-	set_doc_value(doc, ITEM_NAME_ABBREVIATION_FIELD, sanitize_code_segment(attribute_value))
-	set_doc_value(doc, NUMBER_FIELD, sanitize_number(number_value))
+	set_doc_value(doc, ITEM_NAME_ABBREVIATION_FIELD, sanitize_code_segment(attribute_abbreviation))
 
 
 def get_item_code_variant_attribute(doc):
@@ -283,25 +256,23 @@ def get_item_code_variant_attribute(doc):
 	return configured_rows[0]
 
 
-def get_attribute_value_number(attribute_name, attribute_value):
+def get_attribute_value_abbreviation(attribute_name, attribute_value):
 	validate_item_attribute_value_metadata()
 	attribute_doc = frappe.get_doc(ITEM_ATTRIBUTE_DOCTYPE, attribute_name)
 
 	for row in attribute_doc.get(ITEM_ATTRIBUTE_VALUES_FIELD) or []:
 		row_attribute_value = cstr(row.get(ITEM_ATTRIBUTE_VALUE_FIELD)).strip()
-		if row_attribute_value != cstr(attribute_value).strip():
-			continue
-
-		number_value = cstr(row.get(ITEM_ATTRIBUTE_VALUE_NUMBER_FIELD)).strip()
-		if not number_value:
-			frappe.throw(
-				_("Number is missing for Attribute Value {0} in Item Attribute {1}.").format(
-					attribute_value,
-					attribute_name,
+		if row_attribute_value == cstr(attribute_value).strip():
+			abbreviation = cstr(row.get(ITEM_ATTRIBUTE_VALUE_ABBREVIATION_FIELD)).strip()
+			if not abbreviation:
+				frappe.throw(
+					_("Abbreviation is missing for Attribute Value {0} in Item Attribute {1}.").format(
+						attribute_value,
+						attribute_name,
+					)
 				)
-			)
 
-		return number_value
+			return abbreviation
 
 	frappe.throw(
 		_("Attribute Value {0} was not found in Item Attribute {1}.").format(
@@ -347,7 +318,7 @@ def validate_item_attribute_value_metadata():
 		frappe.throw(_("Cannot generate Variant Item Code because Use for Item Code field is missing in Item Attribute."))
 
 	child_meta = frappe.get_meta(ITEM_ATTRIBUTE_VALUE_DOCTYPE)
-	for fieldname in (ITEM_ATTRIBUTE_VALUE_FIELD, ITEM_ATTRIBUTE_VALUE_NUMBER_FIELD):
+	for fieldname in (ITEM_ATTRIBUTE_VALUE_FIELD, ITEM_ATTRIBUTE_VALUE_ABBREVIATION_FIELD):
 		if not child_meta.has_field(fieldname):
 			frappe.throw(
 				_("Cannot generate Variant Item Code because field {0} is missing in {1}.").format(

@@ -26,7 +26,6 @@ def create_variant_doc_for_quick_entry(template, args):
 		variant_doc = frappe._dict(variant)
 		populate_variant_fields_from_item_attribute(variant_doc)
 		variant["item_abbreviation"] = variant_doc.get("item_abbreviation")
-		variant["number"] = variant_doc.get("number")
 		clear_standard_variant_item_code(variant)
 
 	return variant
