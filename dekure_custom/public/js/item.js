@@ -16,6 +16,10 @@ frappe.ui.form.on("Item", {
 		configure_item_code_field(frm);
 		set_item_group_fields(frm);
 	},
+
+	spare_part(frm) {
+		update_variant_item_code_from_spare_part(frm);
+	},
 });
 
 function configure_item_code_field(frm) {
@@ -38,5 +42,30 @@ function set_item_group_fields(frm) {
 
 	if (!is_service && frm.doc.services) {
 		frm.set_value("services", "");
+	}
+}
+
+async function update_variant_item_code_from_spare_part(frm) {
+	if (!["Product", "Products"].includes(frm.doc.item_group) || !frm.doc.variant_of) {
+		return;
+	}
+
+	const response = await frappe.call({
+		method: "dekure_custom.overrides.item.preview_item_code",
+		args: {
+			doc: frm.doc,
+		},
+	});
+
+	if (!response.message) {
+		return;
+	}
+
+	if (response.message.item_abbreviation !== undefined) {
+		await frm.set_value("item_abbreviation", response.message.item_abbreviation);
+	}
+
+	if (response.message.item_code !== undefined) {
+		await frm.set_value("item_code", response.message.item_code || "");
 	}
 }

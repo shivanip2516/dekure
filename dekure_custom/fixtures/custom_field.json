@@ -101,6 +101,6 @@
     "fieldtype": "Check",
     "label": "Use for Item Code",
     "insert_after": "disabled",
-    "default": "0"
+    "default": "1"
   }
 ]

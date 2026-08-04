@@ -44,6 +44,40 @@ def before_insert_item(doc, method=None):
 	generate_item_code(doc, method=method)
 
 
+def validate_item(doc, method=None):
+	if not is_product_variant(doc):
+		return
+
+	populate_variant_fields_from_item_attribute(doc)
+	expected_item_code = build_product_prefix(doc)
+	current_item_code = cstr(doc.get("item_code")).strip()
+
+	if doc.is_new() or should_generate_item_code(doc) or current_item_code != expected_item_code:
+		ensure_item_code_available(expected_item_code, doc)
+		set_generated_item_code(doc, expected_item_code)
+
+
+def on_update_item(doc, method=None):
+	if not is_product_variant(doc):
+		return
+
+	expected_item_code = build_product_prefix(doc)
+	if doc.name == expected_item_code:
+		return
+
+	ensure_item_code_available(expected_item_code, doc)
+	new_name = frappe.rename_doc(
+		doc.doctype,
+		doc.name,
+		expected_item_code,
+		force=True,
+		show_alert=False,
+		rebuild_search=False,
+	)
+	doc.name = new_name
+	doc.item_code = new_name
+
+
 def generate_item_code(doc, method=None):
 	if not should_generate_item_code(doc):
 		return
@@ -53,14 +87,45 @@ def generate_item_code(doc, method=None):
 		return
 
 	with filelock("dekure_custom_item_code_generation", timeout=30):
-		item_code = build_product_prefix(doc) if item_group in PRODUCT_ITEM_GROUPS else build_service_prefix(doc)
+		item_code = build_item_code(doc)
 
-		if frappe.db.exists("Item", item_code):
-			throw_duplicate_item_code(item_code)
+		ensure_item_code_available(item_code, doc)
 
-		doc.item_code = item_code
+		set_generated_item_code(doc, item_code)
+
+
+@frappe.whitelist()
+def preview_item_code(doc):
+	doc = frappe.get_doc(frappe.parse_json(doc))
+
+	if doc.get(ITEM_VARIANT_FIELD):
+		populate_variant_fields_from_item_attribute(doc)
+
+	item_code = build_item_code(doc)
+	ensure_item_code_available(item_code, doc)
+
+	return {
+		"item_code": item_code,
+		"item_abbreviation": doc.get(ITEM_NAME_ABBREVIATION_FIELD),
+	}
+
+
+def build_item_code(doc):
+	item_group = doc.get(ITEM_GROUP_FIELD)
+	return build_product_prefix(doc) if item_group in PRODUCT_ITEM_GROUPS else build_service_prefix(doc)
+
+
+def set_generated_item_code(doc, item_code):
+	doc.item_code = item_code
+	if doc.is_new():
 		doc.name = item_code
-		doc.flags.dekure_custom_item_code_generated = True
+	doc.flags.dekure_custom_item_code_generated = True
+
+
+def ensure_item_code_available(item_code, doc):
+	existing_item = frappe.db.exists("Item", item_code)
+	if existing_item and existing_item != doc.get("name"):
+		throw_duplicate_item_code(item_code)
 
 
 def should_generate_item_code(doc):
@@ -75,6 +140,10 @@ def should_generate_item_code(doc):
 
 	item_code = cstr(doc.get("item_code")).strip()
 	return not item_code or is_temporary_item_code(item_code) or is_standard_variant_item_code(doc, item_code)
+
+
+def is_product_variant(doc):
+	return doc.get(ITEM_GROUP_FIELD) in PRODUCT_ITEM_GROUPS and bool(doc.get(ITEM_VARIANT_FIELD))
 
 
 def is_temporary_item_code(item_code):
@@ -131,13 +200,7 @@ def build_product_prefix(doc):
 
 	if doc.get(SPARE_PART_FIELD):
 		parts.append(
-			get_required_link_abbreviation(
-				doc,
-				SPARE_PART_FIELD,
-				SPARE_PART_DOCTYPE,
-				SPARE_PART_ABBREVIATION_FIELD,
-				_("Spare Part"),
-			)
+			get_spare_part_abbreviation(doc.get(SPARE_PART_FIELD))
 		)
 
 	return build_prefix(parts)
@@ -201,6 +264,19 @@ def get_service_type_abbreviation(doc):
 
 def throw_duplicate_item_code(item_code):
 	frappe.throw(_("Item Code {0} already exists. Check the selected Item attributes and abbreviations.").format(item_code))
+
+
+def get_spare_part_abbreviation(spare_part_name):
+	if not spare_part_name:
+		return ""
+
+	spare_part_doc = frappe.get_doc(SPARE_PART_DOCTYPE, spare_part_name)
+	abbreviation = spare_part_doc.get(SPARE_PART_ABBREVIATION_FIELD)
+	segment = sanitize_code_segment(abbreviation)
+	if not segment:
+		frappe.throw(_("Abbreviation is missing for Spare Part {0}.").format(spare_part_name))
+
+	return segment
 
 
 def populate_variant_fields_from_item_attribute(doc):

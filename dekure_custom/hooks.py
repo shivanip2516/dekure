@@ -14,8 +14,10 @@ fixtures = [
 
 doc_events = {
     "Item": {
+        "validate": "dekure_custom.overrides.item.validate_item",
         "before_naming": "dekure_custom.overrides.item.before_insert_item",
-        "before_insert": "dekure_custom.overrides.item.before_insert_item"
+        "before_insert": "dekure_custom.overrides.item.before_insert_item",
+        "on_update": "dekure_custom.overrides.item.on_update_item"
     }
 }
 
