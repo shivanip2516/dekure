@@ -8,7 +8,14 @@ app_license = "mit"
 fixtures = [
     {"dt": "Custom Field", "filters": [["dt", "in", ["Quotation", "Delivery Note", "Sales Invoice", "Sales Order"]]]},
     {"dt": "Custom Field", "filters": [["name", "in", ["Item-spare_part", "Item-services", "Item-item_abbreviation", "Brand-b_abbreviation", "Item Attribute-use_for_item_code"]]]},
-    {"dt": "Property Setter", "filters": [["name", "in", ["Item-item_code-reqd", "Item-item_code-read_only"]]]}
+    {"dt": "Property Setter", "filters": [["name", "in", ["Item-item_code-reqd", "Item-item_code-read_only"]]]},
+    {
+        "dt": "Custom Field",
+        "filters": [
+            ["dt", "=", "Salary Slip"],
+            ["fieldname", "=", "custom_comp_off_days"]
+        ]
+    },
 ]
  
 
@@ -18,6 +25,9 @@ doc_events = {
         "before_naming": "dekure_custom.overrides.item.before_insert_item",
         "before_insert": "dekure_custom.overrides.item.before_insert_item",
         "on_update": "dekure_custom.overrides.item.on_update_item"
+    },
+    "Employee Checkin": {
+        "validate": "dekure_custom.dekure_custom.api.validate_checkin"
     }
 }
 

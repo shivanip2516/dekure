@@ -4,7 +4,7 @@
         "name": "Quotation-remark",
         "dt": "Quotation",
         "fieldname": "remark",
-        "fieldtype": "Long Text",
+        "fieldtype": "Text Editor",
         "label": "Remark",
         "insert_after": "party_name",
         "in_list_view": 0,
@@ -16,7 +16,7 @@
         "name": "Delivery Note-remark",
         "dt": "Delivery Note",
         "fieldname": "remark",
-        "fieldtype": "Long Text",
+        "fieldtype": "Text Editor",
         "label": "Remark",
         "insert_after": "posting_time",
         "in_list_view": 0,
@@ -28,7 +28,7 @@
     "name": "Sales Invoice-remark",
     "dt": "Sales Invoice",
     "fieldname": "remark",
-    "fieldtype": "Long Text",
+    "fieldtype": "Text Editor",
     "label": "Remark",
     "insert_after": "customer",
     "in_list_view": 0,
@@ -40,7 +40,7 @@
     "name": "Sales Order-remark",
     "dt": "Sales Order",
     "fieldname": "remark",
-    "fieldtype": "Long Text",
+    "fieldtype": "Text Editor",
     "label": "Remark",
     "insert_after": "customer",
     "in_list_view": 0,
@@ -102,5 +102,17 @@
     "label": "Use for Item Code",
     "insert_after": "disabled",
     "default": "1"
-  }
+  },
+  {
+    "doctype": "Custom Field",
+    "name": "Employee Checkin-custom_selfie",
+    "dt": "Employee Checkin",
+    "fieldname": "custom_selfie",
+    "fieldtype": "Attach Image",
+    "label": "Selfie",
+    "insert_after": "log_type",
+    "in_list_view": 0,
+    "reqd": 0,
+    "read_only": 0
+}
 ]

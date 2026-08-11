@@ -1,0 +1,59 @@
+{% extends "templates/web.html" %}
+{% block page_content %}
+<div style="max-width:420px;margin:40px auto;text-align:center;">
+  <h3>Employee Check-in</h3>
+  <video id="cam" autoplay playsinline width="320" height="240" style="background:#000;border-radius:8px;"></video>
+  <canvas id="snap" width="320" height="240" style="display:none;"></canvas>
+  <br><br>
+  <button class="btn btn-primary" id="btn-in">Check In</button>
+  <button class="btn btn-default" id="btn-out">Check Out</button>
+  <p id="status" style="margin-top:10px;color:#666;"></p>
+</div>
+<script>
+const video = document.getElementById('cam');
+const canvas = document.getElementById('snap');
+const statusEl = document.getElementById('status');
+
+navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
+  .then(stream => { video.srcObject = stream; })
+  .catch(err => { statusEl.innerText = "Camera blocked: " + err.message; });
+
+function takePhoto() {
+  canvas.getContext('2d').drawImage(video, 0, 0, 320, 240);
+  return canvas.toDataURL('image/jpeg', 0.8);
+}
+
+function getLocation() {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) return resolve(null);
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      err => { console.warn("Location denied/unavailable:", err.message); resolve(null); },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  });
+}
+
+async function sendCheckin(type) {
+  statusEl.innerText = "Capturing selfie & location...";
+  const photo = takePhoto();
+  const loc = await getLocation();
+
+  frappe.call({
+    method: "dekure_custom.dekure_custom.api.create_checkin",
+    args: {
+      log_type: type,
+      selfie: photo,
+      latitude: loc ? loc.lat : null,
+      longitude: loc ? loc.lng : null
+    },
+    callback: function(r) {
+      statusEl.innerText = r.message.ok ? "✅ " + type + " saved" : "❌ " + r.message.error;
+    }
+  });
+}
+
+document.getElementById('btn-in').onclick = () => sendCheckin('IN');
+document.getElementById('btn-out').onclick = () => sendCheckin('OUT');
+</script>
+{% endblock %}
