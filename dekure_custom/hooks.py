@@ -16,6 +16,13 @@ fixtures = [
             ["fieldname", "=", "custom_comp_off_days"]
         ]
     },
+    {
+        "dt": "Custom Field",
+        "filters": [
+            ["dt", "=", "Employee Checkin"],
+            ["fieldname", "=", "custom_selfie"]
+        ]
+    },
 ]
  
 
@@ -27,7 +34,7 @@ doc_events = {
         "on_update": "dekure_custom.overrides.item.on_update_item"
     },
     "Employee Checkin": {
-        "validate": "dekure_custom.dekure_custom.api.validate_checkin"
+        "validate": "dekure_custom.api.validate_checkin"
     }
 }
 

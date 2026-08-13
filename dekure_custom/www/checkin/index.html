@@ -2,58 +2,153 @@
 {% block page_content %}
 <div style="max-width:420px;margin:40px auto;text-align:center;">
   <h3>Employee Check-in</h3>
-  <video id="cam" autoplay playsinline width="320" height="240" style="background:#000;border-radius:8px;"></video>
+  <div style="position:relative; display:inline-block;">
+    <video id="cam" autoplay playsinline width="320" height="240" style="background:#000;border-radius:8px;"></video>
+    <div id="camera-overlay"
+      style="position:absolute;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:bold;pointer-events:none;">
+      Point your face at the camera</div>
+  </div>
   <canvas id="snap" width="320" height="240" style="display:none;"></canvas>
   <br><br>
-  <button class="btn btn-primary" id="btn-in">Check In</button>
-  <button class="btn btn-default" id="btn-out">Check Out</button>
+  <button class="btn btn-secondary" id="btn-capture">Capture Selfie</button>
+  <div id="preview" style="margin:10px auto;max-width:320px;display:none;">
+    <img id="preview-img" src="" alt="Selfie preview" style="width:100%;border-radius:8px;border:1px solid #ddd;" />
+  </div>
+  <div id="location-info"
+    style="margin:10px auto;max-width:320px;display:none;padding:10px;background:#f5f5f5;border-radius:8px;font-size:14px;text-align:left;">
+    <div><strong>Latitude:</strong> <span id="lat-value">-</span></div>
+    <div><strong>Longitude:</strong> <span id="lng-value">-</span></div>
+    <div><strong>Address:</strong> <span id="address-value">Loading...</span></div>
+  </div>
+  <button class="btn btn-primary" id="btn-in" disabled>Check In</button>
+  <button class="btn btn-default" id="btn-out" disabled>Check Out</button>
   <p id="status" style="margin-top:10px;color:#666;"></p>
 </div>
 <script>
-const video = document.getElementById('cam');
-const canvas = document.getElementById('snap');
-const statusEl = document.getElementById('status');
+  const video = document.getElementById('cam');
+  const canvas = document.getElementById('snap');
+  const statusEl = document.getElementById('status');
+  const captureBtn = document.getElementById('btn-capture');
+  const checkInBtn = document.getElementById('btn-in');
+  const checkOutBtn = document.getElementById('btn-out');
+  const preview = document.getElementById('preview');
+  const previewImg = document.getElementById('preview-img');
+  const locationInfo = document.getElementById('location-info');
+  let currentPhoto = null;
+  let currentLocation = null;
 
-navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
-  .then(stream => { video.srcObject = stream; })
-  .catch(err => { statusEl.innerText = "Camera blocked: " + err.message; });
+  function setButtonsEnabled(enabled) {
+    checkInBtn.disabled = !enabled;
+    checkOutBtn.disabled = !enabled;
+  }
 
-function takePhoto() {
-  canvas.getContext('2d').drawImage(video, 0, 0, 320, 240);
-  return canvas.toDataURL('image/jpeg', 0.8);
-}
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
+    .then(stream => {
+      video.srcObject = stream;
+      statusEl.innerText = "Camera is ready. Capture a selfie to enable check in/out.";
+    })
+    .catch(err => {
+      statusEl.innerText = "Camera not available: " + err.message;
+      captureBtn.disabled = true;
+      setButtonsEnabled(false);
+    });
 
-function getLocation() {
-  return new Promise(resolve => {
-    if (!navigator.geolocation) return resolve(null);
-    navigator.geolocation.getCurrentPosition(
-      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      err => { console.warn("Location denied/unavailable:", err.message); resolve(null); },
-      { enableHighAccuracy: true, timeout: 8000 }
-    );
-  });
-}
+  function takePhoto() {
+    const context = canvas.getContext('2d');
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.8);
+  }
 
-async function sendCheckin(type) {
-  statusEl.innerText = "Capturing selfie & location...";
-  const photo = takePhoto();
-  const loc = await getLocation();
+  function updatePreview(photo) {
+    previewImg.src = photo;
+    preview.style.display = 'block';
+  }
 
-  frappe.call({
-    method: "dekure_custom.dekure_custom.api.create_checkin",
-    args: {
-      log_type: type,
-      selfie: photo,
-      latitude: loc ? loc.lat : null,
-      longitude: loc ? loc.lng : null
-    },
-    callback: function(r) {
-      statusEl.innerText = r.message.ok ? "✅ " + type + " saved" : "❌ " + r.message.error;
+  function getAddress(lat, lng) {
+    return fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`)
+      .then(response => response.json())
+      .then(data => {
+        const address = data.address || {};
+        return (address.road || address.street || '') +
+          ', ' + (address.city || address.town || address.village || '') +
+          ', ' + (address.state || '') +
+          ' ' + (address.postcode || '');
+      })
+      .catch(err => {
+        console.warn("Could not fetch address:", err);
+        return "Address not available";
+      });
+  }
+
+  function getLocation() {
+    return new Promise(resolve => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        err => { console.warn("Location denied/unavailable:", err.message); resolve(null); },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    });
+  }
+
+  captureBtn.addEventListener('click', async () => {
+    statusEl.innerText = "Capturing selfie and location...";
+    currentPhoto = takePhoto();
+    updatePreview(currentPhoto);
+
+    currentLocation = await getLocation();
+
+    if (currentLocation) {
+      document.getElementById('lat-value').innerText = currentLocation.lat.toFixed(6);
+      document.getElementById('lng-value').innerText = currentLocation.lng.toFixed(6);
+      locationInfo.style.display = 'block';
+
+      const address = await getAddress(currentLocation.lat, currentLocation.lng);
+      document.getElementById('address-value').innerText = address;
+    } else {
+      locationInfo.style.display = 'none';
+      statusEl.innerText = "⚠️ Location not available. Please enable location access.";
     }
-  });
-}
 
-document.getElementById('btn-in').onclick = () => sendCheckin('IN');
-document.getElementById('btn-out').onclick = () => sendCheckin('OUT');
+    setButtonsEnabled(true);
+    statusEl.innerText = "✅ Selfie captured with location. You can now check in or check out.";
+  });
+
+  async function sendCheckin(type) {
+    if (!currentPhoto) {
+      statusEl.innerText = "Please capture a selfie before checking in or out.";
+      return;
+    }
+
+    statusEl.innerText = "Saving checkin...";
+
+    frappe.call({
+      method: "dekure_custom.api.create_checkin",
+      args: {
+        log_type: type,
+        selfie: currentPhoto,
+        latitude: currentLocation ? currentLocation.lat : null,
+        longitude: currentLocation ? currentLocation.lng : null
+      },
+      callback: function (r) {
+        if (r.message && r.message.ok) {
+          statusEl.innerText = "✅ " + type + " saved";
+          currentPhoto = null;
+          currentLocation = null;
+          preview.style.display = 'none';
+          locationInfo.style.display = 'none';
+          setButtonsEnabled(false);
+        } else {
+          statusEl.innerText = "❌ " + (r.message ? r.message.error : 'Error saving checkin');
+        }
+      },
+      error: function (err) {
+        statusEl.innerText = "❌ Failed to save checkin: " + (err.message || 'unknown error');
+      }
+    });
+  }
+
+  checkInBtn.addEventListener('click', () => sendCheckin('IN'));
+  checkOutBtn.addEventListener('click', () => sendCheckin('OUT'));
 </script>
 {% endblock %}
