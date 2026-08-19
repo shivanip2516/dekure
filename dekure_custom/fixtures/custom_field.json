@@ -24,28 +24,28 @@
         "read_only": 0
     },
     {
-    "doctype": "Custom Field",
-    "name": "Sales Invoice-remark",
-    "dt": "Sales Invoice",
-    "fieldname": "remark",
-    "fieldtype": "Text Editor",
-    "label": "Remark",
-    "insert_after": "customer",
-    "in_list_view": 0,
-    "reqd": 0,
-    "read_only": 0
+        "doctype": "Custom Field",
+        "name": "Sales Invoice-remark",
+        "dt": "Sales Invoice",
+        "fieldname": "remark",
+        "fieldtype": "Text Editor",
+        "label": "Remark",
+        "insert_after": "customer",
+        "in_list_view": 0,
+        "reqd": 0,
+        "read_only": 0
     },
     {
-    "doctype": "Custom Field",
-    "name": "Sales Order-remark",
-    "dt": "Sales Order",
-    "fieldname": "remark",
-    "fieldtype": "Text Editor",
-    "label": "Remark",
-    "insert_after": "customer",
-    "in_list_view": 0,
-    "reqd": 0,
-    "read_only": 0
+        "doctype": "Custom Field",
+        "name": "Sales Order-remark",
+        "dt": "Sales Order",
+        "fieldname": "remark",
+        "fieldtype": "Text Editor",
+        "label": "Remark",
+        "insert_after": "customer",
+        "in_list_view": 0,
+        "reqd": 0,
+        "read_only": 0
     },
     {
         "doctype": "Custom Field",
@@ -74,45 +74,55 @@
         "read_only": 0
     },
     {
-    "doctype": "Custom Field",
-    "dt": "Item",
-    "name": "Item-item_abbreviation",
-    "fieldname": "item_abbreviation",
-    "fieldtype": "Data",
-    "label": "Item Abbreviation",
-    "insert_after": "item_name",
-    "unique": 1
-  },
-  {
-    "doctype": "Custom Field",
-    "dt": "Brand",
-    "name": "Brand-b_abbreviation",
-    "fieldname": "b_abbreviation",
-    "fieldtype": "Data",
-    "label": "Brand Abbreviation",
-    "insert_after": "brand",
-    "unique": 1
-  },
-  {
-    "doctype": "Custom Field",
-    "dt": "Item Attribute",
-    "name": "Item Attribute-use_for_item_code",
-    "fieldname": "use_for_item_code",
-    "fieldtype": "Check",
-    "label": "Use for Item Code",
-    "insert_after": "disabled",
-    "default": "1"
-  },
-  {
-    "doctype": "Custom Field",
-    "name": "Employee Checkin-custom_selfie",
-    "dt": "Employee Checkin",
-    "fieldname": "custom_selfie",
-    "fieldtype": "Attach Image",
-    "label": "Selfie",
-    "insert_after": "log_type",
-    "in_list_view": 0,
-    "reqd": 0,
-    "read_only": 0
-}
+        "doctype": "Custom Field",
+        "dt": "Item",
+        "name": "Item-item_abbreviation",
+        "fieldname": "item_abbreviation",
+        "fieldtype": "Data",
+        "label": "Item Abbreviation",
+        "insert_after": "item_name",
+        "unique": 1
+    },
+    {
+        "doctype": "Custom Field",
+        "dt": "Brand",
+        "name": "Brand-b_abbreviation",
+        "fieldname": "b_abbreviation",
+        "fieldtype": "Data",
+        "label": "Brand Abbreviation",
+        "insert_after": "brand",
+        "unique": 1
+    },
+    {
+        "doctype": "Custom Field",
+        "dt": "Item Attribute",
+        "name": "Item Attribute-use_for_item_code",
+        "fieldname": "use_for_item_code",
+        "fieldtype": "Check",
+        "label": "Use for Item Code",
+        "insert_after": "disabled",
+        "default": "1"
+    },
+    {
+        "doctype": "Custom Field",
+        "dt": "Employee",
+        "name": "Employee-attendance_approver",
+        "fieldname": "attendance_approver",
+        "fieldtype": "Link",
+        "label": "Attendance Approver",
+        "options": "User",
+        "insert_after": "reports_to"
+    },
+    {
+        "doctype": "Custom Field",
+        "name": "Employee Checkin-custom_selfie",
+        "dt": "Employee Checkin",
+        "fieldname": "custom_selfie",
+        "fieldtype": "Attach Image",
+        "label": "Selfie",
+        "insert_after": "log_type",
+        "in_list_view": 0,
+        "reqd": 0,
+        "read_only": 0
+    }
 ]

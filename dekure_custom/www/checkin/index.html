@@ -22,20 +22,81 @@
   </div>
   <button class="btn btn-primary" id="btn-in" disabled>Check In</button>
   <button class="btn btn-default" id="btn-out" disabled>Check Out</button>
+  <div id="missed-punch" style="margin-top:18px;display:none;">
+    <p id="missed-punch-message" style="margin-bottom:8px;color:#666;"></p>
+    <button class="btn btn-warning btn-sm" id="btn-missed-in" style="display:none;">Request Missed Check-in</button>
+    <button class="btn btn-warning btn-sm" id="btn-missed-out" style="display:none;">Request Missed Check-out</button>
+  </div>
   <p id="status" style="margin-top:10px;color:#666;"></p>
+  <div id="camera-hint" style="margin-top:6px;color:#b00;font-size:13px;"></div>
 </div>
 <script>
   const video = document.getElementById('cam');
   const canvas = document.getElementById('snap');
   const statusEl = document.getElementById('status');
+  const cameraHint = document.getElementById('camera-hint');
   const captureBtn = document.getElementById('btn-capture');
   const checkInBtn = document.getElementById('btn-in');
   const checkOutBtn = document.getElementById('btn-out');
+  const missedPunch = document.getElementById('missed-punch');
+  const missedPunchMessage = document.getElementById('missed-punch-message');
+  const missedCheckinBtn = document.getElementById('btn-missed-in');
+  const missedCheckoutBtn = document.getElementById('btn-missed-out');
+  let missedCheckoutDate = null;
   const preview = document.getElementById('preview');
   const previewImg = document.getElementById('preview-img');
   const locationInfo = document.getElementById('location-info');
   let currentPhoto = null;
   let currentLocation = null;
+
+  async function checkCameraPermission() {
+    cameraHint.innerText = '';
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      cameraHint.innerText = 'Camera API not supported in this browser.';
+      captureBtn.disabled = true;
+      setButtonsEnabled(false);
+      return;
+    }
+
+    if (navigator.permissions && navigator.permissions.query) {
+      try {
+        const p = await navigator.permissions.query({ name: 'camera' });
+        if (p.state === 'granted') {
+          cameraHint.innerText = 'Camera permission granted.';
+        } else if (p.state === 'prompt') {
+          cameraHint.innerText = 'Camera permission will be requested when you capture a selfie.';
+        } else if (p.state === 'denied') {
+          cameraHint.innerHTML = 'Camera permission is denied for this site. Click the lock icon in the address bar → Site settings → Allow Camera.';
+          captureBtn.disabled = true;
+          setButtonsEnabled(false);
+        }
+        p.onchange = () => checkCameraPermission();
+      } catch (e) {
+        // permissions API may not support 'camera' on all browsers
+      }
+    }
+  }
+
+  async function startCamera() {
+    if (video.srcObject) return true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      statusEl.innerText = 'Camera API not supported in this browser.';
+      captureBtn.disabled = true;
+      return false;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      video.srcObject = stream;
+      statusEl.innerText = 'Camera is ready. Capture a selfie to enable check in/out.';
+      return true;
+    } catch (err) {
+      statusEl.innerText = 'Camera not available: ' + err.message;
+      cameraHint.innerHTML = 'Camera access blocked. Click lock icon → Site settings → Allow Camera.';
+      captureBtn.disabled = true;
+      setButtonsEnabled(false);
+      return false;
+    }
+  }
 
   function setButtonsEnabled(enabled) {
     checkInBtn.disabled = !enabled;
@@ -93,6 +154,9 @@
 
   captureBtn.addEventListener('click', async () => {
     statusEl.innerText = "Capturing selfie and location...";
+    const ok = await startCamera();
+    if (!ok) return;
+
     currentPhoto = takePhoto();
     updatePreview(currentPhoto);
 
@@ -138,6 +202,7 @@
           preview.style.display = 'none';
           locationInfo.style.display = 'none';
           setButtonsEnabled(false);
+          loadMissedPunchStatus();
         } else {
           statusEl.innerText = "❌ " + (r.message ? r.message.error : 'Error saving checkin');
         }
@@ -150,5 +215,51 @@
 
   checkInBtn.addEventListener('click', () => sendCheckin('IN'));
   checkOutBtn.addEventListener('click', () => sendCheckin('OUT'));
+
+  function loadMissedPunchStatus() {
+    frappe.call({
+      method: 'dekure_custom.api.get_missed_punch_status',
+      callback: ({ message }) => {
+        if (!message) return;
+        missedPunch.style.display = 'block';
+        missedCheckoutDate = message.missed_checkout_date;
+        missedCheckinBtn.style.display = message.can_request_checkin ? 'inline-block' : 'none';
+        missedCheckoutBtn.style.display = message.can_request_checkout ? 'inline-block' : 'none';
+        if (message.blocked_by_checkout_date) {
+          missedPunchMessage.innerText = `A check-out from ${message.blocked_by_checkout_date} is unresolved. Request a missed check-out before checking in today.`;
+        } else if (!message.can_request_checkin && !message.can_request_checkout) {
+          missedPunchMessage.innerText = 'No missed-punch request is currently needed.';
+        } else {
+          missedPunchMessage.innerText = 'Need to correct a missed punch? Submit it for Attendance Approver review.';
+        }
+      }
+    });
+  }
+
+  function requestMissedPunch(requestType, attendanceDate = null) {
+    frappe.prompt([
+      { fieldname: 'attendance_date', fieldtype: 'Date', label: 'Attendance Date', default: attendanceDate || frappe.datetime.get_today(), reqd: 1 },
+      { fieldname: 'requested_time', fieldtype: 'Time', label: requestType === 'Missed Check-in' ? 'Requested Check-in Time' : 'Requested Check-out Time', reqd: 1 },
+      { fieldname: 'reason', fieldtype: 'Small Text', label: 'Reason', reqd: 1 }
+    ], values => {
+      frappe.call({
+        method: 'dekure_custom.api.create_missed_punch_request',
+        args: { request_type: requestType, ...values },
+        freeze: true,
+        callback: ({ message }) => {
+          if (message?.ok) {
+            frappe.show_alert({ message: `${requestType} request submitted for approval.`, indicator: 'green' });
+            loadMissedPunchStatus();
+          }
+        }
+      });
+    }, requestType, 'Submit');
+  }
+
+  missedCheckinBtn.addEventListener('click', () => requestMissedPunch('Missed Check-in'));
+  missedCheckoutBtn.addEventListener('click', () => requestMissedPunch('Missed Check-out', missedCheckoutDate));
+  // perform an initial permission check to give the user actionable feedback
+  checkCameraPermission();
+  loadMissedPunchStatus();
 </script>
 {% endblock %}

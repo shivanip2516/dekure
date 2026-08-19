@@ -19,9 +19,16 @@ fixtures = [
     {
         "dt": "Custom Field",
         "filters": [
-            ["dt", "=", "Employee Checkin"],
-            ["fieldname", "=", "custom_selfie"]
+            ["dt", "=", "Employee"],
+            ["fieldname", "=", "attendance_approver"]
         ]
+    },
+    {
+    "dt": "Custom Field",
+    "filters": [
+        ["dt", "=", "Employee Checkin"],
+        ["fieldname", "=", "custom_selfie"]
+    ]
     },
 ]
  
