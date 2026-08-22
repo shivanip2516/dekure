@@ -45,6 +45,14 @@ doc_events = {
     }
 }
 
+doctype_js = {
+    "Employee Checkin": "public/js/employee_checkin.js",
+}
+
+doctype_list_js = {
+    "Employee Checkin": "public/js/employee_checkin.js",
+}
+
 override_whitelisted_methods = {
     "erpnext.controllers.item_variant.create_variant": "dekure_custom.overrides.item_variant.create_variant",
     "erpnext.controllers.item_variant.create_variant_doc_for_quick_entry": "dekure_custom.overrides.item_variant.create_variant_doc_for_quick_entry",

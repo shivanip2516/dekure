@@ -1,9 +1,9 @@
 {
  "actions": [],
- "autoname": "format:VIS-.YYYY.-.#####",
+ "autoname": "VIS-.YYYY.-.#####",
  "doctype": "DocType",
  "engine": "InnoDB",
- "field_order": ["employee", "employee_name", "visit_date", "customer", "contact_person", "address", "visit_type", "visit_purpose", "remarks", "status", "planned_latitude", "planned_longitude", "checkin_latitude", "checkin_longitude", "checkin_time", "checkout_latitude", "checkout_longitude", "checkout_time", "cancelled_by", "cancelled_time", "cancellation_reason"],
+ "field_order": ["employee", "employee_name", "visit_date", "customer", "contact_person", "address", "visit_type", "visit_purpose", "remarks", "status", "planned_latitude", "planned_longitude", "checkin_latitude", "checkin_longitude", "checkin_address", "checkin_time", "checkout_latitude", "checkout_longitude", "checkout_address", "checkout_time", "cancelled_by", "cancelled_time", "cancellation_reason"],
  "fields": [
   {"fieldname": "employee", "fieldtype": "Link", "label": "Employee", "options": "Employee", "reqd": 1, "read_only": 1, "in_list_view": 1},
   {"fieldname": "employee_name", "fieldtype": "Data", "label": "Employee Name", "fetch_from": "employee.employee_name", "read_only": 1},
@@ -19,9 +19,11 @@
   {"fieldname": "planned_longitude", "fieldtype": "Float", "label": "Planned Longitude", "precision": "7", "read_only": 1},
   {"fieldname": "checkin_latitude", "fieldtype": "Float", "label": "Check-in Latitude", "precision": "7", "read_only": 1},
   {"fieldname": "checkin_longitude", "fieldtype": "Float", "label": "Check-in Longitude", "precision": "7", "read_only": 1},
+  {"fieldname": "checkin_address", "fieldtype": "Small Text", "label": "Check-in Address", "read_only": 1},
   {"fieldname": "checkin_time", "fieldtype": "Datetime", "label": "Check-in Time", "read_only": 1},
   {"fieldname": "checkout_latitude", "fieldtype": "Float", "label": "Check-out Latitude", "precision": "7", "read_only": 1},
   {"fieldname": "checkout_longitude", "fieldtype": "Float", "label": "Check-out Longitude", "precision": "7", "read_only": 1},
+  {"fieldname": "checkout_address", "fieldtype": "Small Text", "label": "Check-out Address", "read_only": 1},
   {"fieldname": "checkout_time", "fieldtype": "Datetime", "label": "Check-out Time", "read_only": 1},
   {"fieldname": "cancelled_by", "fieldtype": "Link", "label": "Cancelled By", "options": "User", "read_only": 1},
   {"fieldname": "cancelled_time", "fieldtype": "Datetime", "label": "Cancelled Time", "read_only": 1},
@@ -29,7 +31,7 @@
  ],
  "module": "Dekure Custom",
  "name": "Visit",
- "naming_rule": "Expression",
+ "naming_rule": "Expression (old style)",
  "permissions": [
   {"role": "System Manager", "read": 1, "write": 1, "create": 1, "delete": 1, "report": 1, "export": 1, "email": 1, "print": 1, "share": 1},
   {"role": "HR Manager", "read": 1, "write": 1, "report": 1, "export": 1, "email": 1, "print": 1},

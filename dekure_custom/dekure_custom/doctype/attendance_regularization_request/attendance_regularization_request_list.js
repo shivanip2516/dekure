@@ -34,16 +34,53 @@ function open_request_dialog(request_type) {
 					{ fieldname: "reason", fieldtype: "Small Text", label: __("Reason"), reqd: 1 },
 				],
 				(values) => {
-					frappe.call({
-						method: "dekure_custom.api.create_missed_punch_request",
-						args: { request_type, ...values },
-						freeze: true,
-						callback: () => listview.refresh(),
-					});
+					if (is_checkin) {
+						submit_request(listview, request_type, values);
+						return;
+					}
+
+					get_current_location(
+						(location) => submit_request(listview, request_type, values, location),
+						() => frappe.msgprint(__("Unable to fetch your location. Please allow location access and try again.")),
+					);
 				},
 				__(request_type),
 				__("Submit"),
 			);
 		},
 	});
+}
+
+function submit_request(listview, request_type, values, location = null) {
+	frappe.call({
+		method: "dekure_custom.api.create_missed_punch_request",
+		args: {
+			request_type,
+			...values,
+			latitude: location ? location.latitude : null,
+			longitude: location ? location.longitude : null,
+		},
+		freeze: true,
+		callback: () => listview.refresh(),
+	});
+}
+
+function get_current_location(on_success, on_error) {
+	if (!navigator.geolocation) {
+		on_error();
+		return;
+	}
+	navigator.geolocation.getCurrentPosition(
+		(pos) => {
+			const latitude = pos.coords.latitude;
+			const longitude = pos.coords.longitude;
+			if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+				on_error();
+				return;
+			}
+			on_success({ latitude, longitude });
+		},
+		() => on_error(),
+		{ enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+	);
 }

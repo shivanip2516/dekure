@@ -152,6 +152,35 @@
     });
   }
 
+  function getCurrentLocationForSubmission(onSuccess, onError) {
+    if (!navigator.geolocation) {
+      onError();
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      position => {
+        const latitude = position.coords.latitude;
+        const longitude = position.coords.longitude;
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+          onError();
+          return;
+        }
+        onSuccess({ latitude, longitude });
+      },
+      err => {
+        console.warn("Location denied/unavailable:", err.message);
+        onError();
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  }
+
+  function showLocationError() {
+    const message = 'Unable to fetch your location. Please allow location access and try again.';
+    statusEl.innerText = message;
+    frappe.msgprint(__(message));
+  }
+
   captureBtn.addEventListener('click', async () => {
     statusEl.innerText = "Capturing selfie and location...";
     const ok = await startCamera();
@@ -236,23 +265,41 @@
     });
   }
 
+  function submitMissedPunchRequest(requestType, values, location = null) {
+    frappe.call({
+      method: 'dekure_custom.api.create_missed_punch_request',
+      args: {
+        request_type: requestType,
+        ...values,
+        latitude: location ? location.latitude : null,
+        longitude: location ? location.longitude : null
+      },
+      freeze: true,
+      callback: ({ message }) => {
+        if (message?.ok) {
+          frappe.show_alert({ message: `${requestType} request submitted for approval.`, indicator: 'green' });
+          loadMissedPunchStatus();
+        }
+      }
+    });
+  }
+
   function requestMissedPunch(requestType, attendanceDate = null) {
     frappe.prompt([
       { fieldname: 'attendance_date', fieldtype: 'Date', label: 'Attendance Date', default: attendanceDate || frappe.datetime.get_today(), reqd: 1 },
       { fieldname: 'requested_time', fieldtype: 'Time', label: requestType === 'Missed Check-in' ? 'Requested Check-in Time' : 'Requested Check-out Time', reqd: 1 },
       { fieldname: 'reason', fieldtype: 'Small Text', label: 'Reason', reqd: 1 }
     ], values => {
-      frappe.call({
-        method: 'dekure_custom.api.create_missed_punch_request',
-        args: { request_type: requestType, ...values },
-        freeze: true,
-        callback: ({ message }) => {
-          if (message?.ok) {
-            frappe.show_alert({ message: `${requestType} request submitted for approval.`, indicator: 'green' });
-            loadMissedPunchStatus();
-          }
-        }
-      });
+      if (requestType !== 'Missed Check-out') {
+        submitMissedPunchRequest(requestType, values);
+        return;
+      }
+
+      statusEl.innerText = 'Fetching your current location...';
+      getCurrentLocationForSubmission(
+        location => submitMissedPunchRequest(requestType, values, location),
+        showLocationError
+      );
     }, requestType, 'Submit');
   }
 
