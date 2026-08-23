@@ -74,6 +74,7 @@ def get_missed_punch_status():
     today = nowdate()
     today_logs = _day_logs(employee, today)
     previous_open_checkout = _open_checkout_date(employee, before_date=today)
+    unresolved_open_checkout = _unresolved_open_checkout_date(employee, before_date=today)
 
     checkout_request_date = previous_open_checkout or today
     today_checkin = _first_log(today_logs, "IN")
@@ -90,9 +91,9 @@ def get_missed_punch_status():
         "today_checkin_time": today_checkin.time if today_checkin else None,
         "today_checkout_time": today_checkout.time if today_checkout else None,
         "attendance_completed": bool(today_checkin and today_checkout),
-        "can_checkin": not previous_open_checkout and not today_checkin,
+        "can_checkin": not unresolved_open_checkout and not today_checkin,
         "can_checkout": bool(today_checkin and not today_checkout),
-        "can_request_checkin": not previous_open_checkout
+        "can_request_checkin": not unresolved_open_checkout
         and not _has_log(today_logs, "IN")
         and not _has_pending_request(employee, today, MISSED_CHECKIN),
         "can_request_checkout": (
@@ -101,7 +102,7 @@ def get_missed_punch_status():
         )
         and not _has_pending_request(employee, checkout_request_date, MISSED_CHECKOUT),
         "missed_checkout_date": checkout_request_date if previous_open_checkout else None,
-        "blocked_by_checkout_date": previous_open_checkout,
+        "blocked_by_checkout_date": unresolved_open_checkout,
         "pending_missed_checkout": bool(pending_missed_checkout),
         "pending_missed_checkout_name": pending_missed_checkout,
         "default_checkout_time": _get_shift_end_time(employee, previous_open_checkout, raise_if_missing=False)
@@ -284,10 +285,31 @@ def _open_checkout_date(employee, before_date=None):
     return max(incomplete).isoformat() if incomplete else None
 
 
+def _unresolved_open_checkout_date(employee, before_date=None, exclude_request=None):
+    filters = {"employee": employee}
+    if before_date:
+        filters["time"] = ["<", f"{before_date} 00:00:00"]
+    logs = frappe.get_all("Employee Checkin", filters=filters, fields=["log_type", "time"], order_by="time asc")
+    open_dates = {}
+    for log in logs:
+        log_date = getdate(log.time)
+        open_dates.setdefault(log_date, {"IN": False, "OUT": False})[log.log_type] = True
+    incomplete = [
+        date
+        for date, types in open_dates.items()
+        if types["IN"]
+        and not types["OUT"]
+        and not _has_pending_request(employee, date, MISSED_CHECKOUT, exclude_request)
+    ]
+    return max(incomplete).isoformat() if incomplete else None
+
+
 def _validate_normal_punch(employee, log_type, attendance_date, exclude_checkin=None, exclude_request=None):
-    previous_open_checkout = _open_checkout_date(employee, before_date=attendance_date)
-    if log_type == "IN" and previous_open_checkout:
-        frappe.throw(_("Complete the missed check-out for {0} before checking in.").format(previous_open_checkout))
+    unresolved_open_checkout = _unresolved_open_checkout_date(
+        employee, before_date=attendance_date, exclude_request=exclude_request
+    )
+    if log_type == "IN" and unresolved_open_checkout:
+        frappe.throw(_("Complete the missed check-out for {0} before checking in.").format(unresolved_open_checkout))
 
     logs = _day_logs(employee, attendance_date, exclude_checkin=exclude_checkin)
     if log_type == "IN" and _has_log(logs, "IN"):
@@ -422,7 +444,9 @@ def get_visit(name):
 
 @frappe.whitelist()
 def create_visit(
-    customer,
+    customer=None,
+    new_customer=None,
+    customer_type=None,
     visit_date=None,
     visit_type=None,
     contact_person=None,
@@ -433,8 +457,31 @@ def create_visit(
 ):
     """Create a planned visit for the current PWA employee only."""
     _ensure_visit_doctype()
-    if not customer:
-        frappe.throw(_("Customer is required"))
+    employee = _current_employee()
+
+    if not customer_type:
+        customer_type = "New Customer" if (new_customer and not customer) else "Existing Customer"
+
+    customer_val = None
+    new_customer_val = None
+    display_customer_name = None
+
+    if customer_type == "New Customer":
+        if not new_customer:
+            frappe.throw(_("New Customer is required"))
+        new_customer_val = new_customer
+        display_customer_name = (
+            frappe.db.get_value("Visit Customer", new_customer, "customer_name") or new_customer
+        )
+    else:
+        customer_type = "Existing Customer"
+        if not customer:
+            frappe.throw(_("Existing Customer is required"))
+        customer_val = customer
+        display_customer_name = (
+            frappe.db.get_value("Customer", customer, "customer_name") or customer
+        )
+
     visit_date = getdate(visit_date or nowdate())
     if visit_date < getdate(nowdate()):
         frappe.throw(_("A visit cannot be planned for a past date"))
@@ -442,8 +489,11 @@ def create_visit(
     visit = frappe.get_doc(
         {
             "doctype": VISIT_DOCTYPE,
-            "employee": _current_employee(),
-            "customer": customer,
+            "employee": employee,
+            "customer_type": customer_type,
+            "customer": customer_val,
+            "new_customer": new_customer_val,
+            "customer_name": display_customer_name,
             "visit_date": visit_date,
             "visit_type": visit_type,
             "contact_person": contact_person,
@@ -456,6 +506,65 @@ def create_visit(
     visit.insert(ignore_permissions=True)
     frappe.share.add(VISIT_DOCTYPE, visit.name, frappe.session.user, read=1)
     return get_visit(visit.name)
+
+
+@frappe.whitelist()
+def create_visit_customer(customer_name, contact_person=None, mobile_no=None, email=None, address=None):
+    """Create a new Visit Customer record specifically for PWA visits."""
+    if not customer_name or not customer_name.strip():
+        frappe.throw(_("Customer Name is required"))
+
+    employee = _current_employee()
+    customer_doc = frappe.get_doc(
+        {
+            "doctype": "Visit Customer",
+            "customer_name": customer_name.strip(),
+            "contact_person": (contact_person or "").strip() or None,
+            "mobile_no": (mobile_no or "").strip() or None,
+            "email": (email or "").strip() or None,
+            "address": (address or "").strip() or None,
+            "employee": employee,
+        }
+    )
+    customer_doc.insert(ignore_permissions=True)
+    frappe.share.add("Visit Customer", customer_doc.name, frappe.session.user, read=1, write=1)
+    return {
+        "ok": True,
+        "name": customer_doc.name,
+        "customer_name": customer_doc.customer_name,
+        "contact_person": customer_doc.contact_person,
+        "mobile_no": customer_doc.mobile_no,
+        "email": customer_doc.email,
+        "address": customer_doc.address,
+    }
+
+
+@frappe.whitelist()
+def get_visit_customers(txt=None):
+    """Return all PWA Visit Customers for selection."""
+    filters = {}
+    if txt and txt.strip():
+        filters["customer_name"] = ["like", f"%{txt.strip()}%"]
+
+    records = frappe.get_all(
+        "Visit Customer",
+        filters=filters,
+        fields=["name", "customer_name", "contact_person", "mobile_no", "email", "address"],
+        order_by="creation desc",
+    )
+    return [
+        {
+            "name": r.name,
+            "value": r.name,
+            "label": r.customer_name or r.name,
+            "customer_name": r.customer_name or r.name,
+            "contact_person": r.contact_person or "",
+            "mobile_no": r.mobile_no or "",
+            "email": r.email or "",
+            "address": r.address or "",
+        }
+        for r in records
+    ]
 
 
 @frappe.whitelist()
@@ -804,10 +913,13 @@ def _visit_fields():
         "employee",
         "employee_name",
         "visit_date",
-        "visit_type",
+        "customer_type",
         "customer",
+        "new_customer",
+        "customer_name",
         "contact_person",
         "address",
+        "visit_type",
         "visit_purpose",
         "remarks",
         "status",
