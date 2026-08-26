@@ -23,6 +23,20 @@ VISIT_REVERSE_GEOCODE_TIMEOUT = 3
 VISIT_NEARBY_ADDRESS_RADIUS_METERS = 800
 
 
+def _safe_share(doctype, name, user, read=1, write=0, submit=0):
+    if not user:
+        return
+    frappe.share.add_docshare(
+        doctype,
+        name,
+        user=user,
+        read=read,
+        write=write,
+        submit=submit,
+        flags={"ignore_share_permission": True},
+    )
+
+
 @frappe.whitelist()
 def create_checkin(log_type, selfie, latitude=None, longitude=None):
     """Called from the /checkin page when employee taps Check In / Check Out"""
@@ -119,6 +133,9 @@ def create_missed_punch_request(request_type, attendance_date, requested_time, r
     if not reason or not reason.strip():
         frappe.throw(_("A reason is required"))
 
+    if not frappe.has_permission("Attendance Regularization Request", "create"):
+        frappe.throw(_("You do not have permission to create Attendance Regularization Requests"), frappe.PermissionError)
+
     employee = _current_employee()
     attendance_date = getdate(attendance_date)
     if attendance_date > getdate(nowdate()):
@@ -155,8 +172,9 @@ def create_missed_punch_request(request_type, attendance_date, requested_time, r
         }
     )
     request.insert(ignore_permissions=True)
-    frappe.share.add("Attendance Regularization Request", request.name, frappe.session.user, read=1, write=1)
-    frappe.share.add("Attendance Regularization Request", request.name, request.attendance_approver, read=1, write=1)
+    _safe_share("Attendance Regularization Request", request.name, frappe.session.user, read=1, write=1)
+    if request.attendance_approver:
+        _safe_share("Attendance Regularization Request", request.name, request.attendance_approver, read=1, write=1)
     return {"ok": True, "name": request.name, "status": request.status}
 
 
@@ -167,6 +185,9 @@ def review_missed_punch_request(name, action, rejection_reason=None):
         frappe.throw(_("Invalid review action"))
 
     request = frappe.get_doc("Attendance Regularization Request", name)
+    if not request.has_permission("write"):
+        frappe.throw(_("You do not have write/review permission for this request"), frappe.PermissionError)
+
     employee_user = frappe.db.get_value("Employee", request.employee, "user_id")
     if frappe.session.user == employee_user:
         frappe.throw(_("You cannot approve or reject your own missed check-out request"), frappe.PermissionError)
@@ -223,6 +244,15 @@ def review_missed_punch_request(name, action, rejection_reason=None):
             }
         )
     return {"ok": True, "status": request.status}
+
+
+@frappe.whitelist()
+def get_attendance_regularization_details(employee, attendance_date):
+    return {
+        "shift": _get_shift(employee, attendance_date),
+        "attendance_approver": _get_shift_approver(employee),
+        "existing_checkin": _get_existing_checkin_time(employee, attendance_date),
+    }
 
 
 def _current_employee():
@@ -504,7 +534,7 @@ def create_visit(
         }
     )
     visit.insert(ignore_permissions=True)
-    frappe.share.add(VISIT_DOCTYPE, visit.name, frappe.session.user, read=1)
+    _safe_share(VISIT_DOCTYPE, visit.name, frappe.session.user, read=1)
     return get_visit(visit.name)
 
 
@@ -527,7 +557,7 @@ def create_visit_customer(customer_name, contact_person=None, mobile_no=None, em
         }
     )
     customer_doc.insert(ignore_permissions=True)
-    frappe.share.add("Visit Customer", customer_doc.name, frappe.session.user, read=1, write=1)
+    _safe_share("Visit Customer", customer_doc.name, frappe.session.user, read=1, write=1)
     return {
         "ok": True,
         "name": customer_doc.name,
