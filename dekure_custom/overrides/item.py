@@ -312,10 +312,8 @@ def get_variant_attribute_segments(doc):
 			)
 
 		attribute_segment = sanitize_code_segment(attribute_name)
-		value_segment = sanitize_code_segment(
-			get_attribute_value_abbreviation(attribute_name, attribute_value)
-		)
-		if not attribute_segment or not value_segment:
+		value_segment = sanitize_code_segment(get_attribute_value_abbreviation(attribute_name, attribute_value))
+		if not attribute_segment:
 			frappe.throw(
 				_("Cannot generate Variant Item Code because Attribute {0} has an invalid code segment.").format(
 					attribute_name
@@ -323,7 +321,9 @@ def get_variant_attribute_segments(doc):
 			)
 
 		seen_attributes.add(attribute_name)
-		segments.extend([attribute_segment, value_segment])
+		segments.append(attribute_segment)
+		if value_segment:
+			segments.append(value_segment)
 
 	if not segments:
 		frappe.throw(_("Cannot generate Variant Item Code because no selected Item Attributes were found."))
@@ -445,16 +445,7 @@ def get_attribute_value_abbreviation(attribute_name, attribute_value):
 	for row in attribute_doc.get(ITEM_ATTRIBUTE_VALUES_FIELD) or []:
 		row_attribute_value = cstr(row.get(ITEM_ATTRIBUTE_VALUE_FIELD)).strip()
 		if row_attribute_value == cstr(attribute_value).strip():
-			abbreviation = cstr(row.get(ITEM_ATTRIBUTE_VALUE_ABBREVIATION_FIELD)).strip()
-			if not abbreviation:
-				frappe.throw(
-					_("Abbreviation is missing for Attribute Value {0} in Item Attribute {1}.").format(
-						attribute_value,
-						attribute_name,
-					)
-				)
-
-			return abbreviation
+			return cstr(row.get(ITEM_ATTRIBUTE_VALUE_ABBREVIATION_FIELD)).strip()
 
 	frappe.throw(
 		_("Attribute Value {0} was not found in Item Attribute {1}.").format(

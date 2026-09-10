@@ -60,6 +60,10 @@ override_whitelisted_methods = {
     "erpnext.controllers.item_variant.enqueue_multiple_variant_creation": "dekure_custom.overrides.item_variant.enqueue_multiple_variant_creation",
 }
 
+override_doctype_class = {
+    "Item Attribute": "dekure_custom.overrides.item_attribute.DekureItemAttribute",
+}
+
 # Apps
 # ------------------
 
