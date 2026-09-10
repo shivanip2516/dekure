@@ -38,27 +38,38 @@ USE_FOR_ITEM_CODE_FIELD = "use_for_item_code"
 
 
 def before_insert_item(doc, method=None):
-	if doc.get(ITEM_VARIANT_FIELD):
-		populate_variant_fields_from_item_attribute(doc)
-
 	generate_item_code(doc, method=method)
 
 
 def validate_item(doc, method=None):
+	if should_rename_product_item_for_spare_part_change(doc):
+		doc.flags.dekure_custom_rename_for_spare_part_change = True
+		return
+
 	if not is_product_variant(doc):
 		return
 
-	populate_variant_fields_from_item_attribute(doc)
-	expected_item_code = build_product_prefix(doc)
-	current_item_code = cstr(doc.get("item_code")).strip()
+	if should_rename_product_variant_for_spare_part_change(doc):
+		doc.flags.dekure_custom_rename_for_spare_part_change = True
+		return
 
-	if doc.is_new() or should_generate_item_code(doc) or current_item_code != expected_item_code:
-		ensure_item_code_available(expected_item_code, doc)
-		set_generated_item_code(doc, expected_item_code)
+	if not (doc.is_new() or should_generate_item_code(doc)):
+		return
+
+	expected_item_code = build_product_prefix(doc)
+
+	ensure_item_code_available(expected_item_code, doc)
+	set_generated_item_code(doc, expected_item_code)
 
 
 def on_update_item(doc, method=None):
-	if not is_product_variant(doc):
+	if not (is_product_variant(doc) or doc.flags.get("dekure_custom_rename_for_spare_part_change")):
+		return
+
+	if not (
+		doc.flags.get("dekure_custom_item_code_generated")
+		or doc.flags.get("dekure_custom_rename_for_spare_part_change")
+	):
 		return
 
 	expected_item_code = build_product_prefix(doc)
@@ -79,11 +90,11 @@ def on_update_item(doc, method=None):
 
 
 def generate_item_code(doc, method=None):
-	if not should_generate_item_code(doc):
-		return
-
 	item_group = doc.get(ITEM_GROUP_FIELD)
 	if item_group not in SUPPORTED_ITEM_GROUPS:
+		return
+
+	if not should_generate_item_code(doc) and not should_regenerate_new_spare_part_item_code(doc):
 		return
 
 	with filelock("dekure_custom_item_code_generation", timeout=30):
@@ -97,9 +108,6 @@ def generate_item_code(doc, method=None):
 @frappe.whitelist()
 def preview_item_code(doc):
 	doc = frappe.get_doc(frappe.parse_json(doc))
-
-	if doc.get(ITEM_VARIANT_FIELD):
-		populate_variant_fields_from_item_attribute(doc)
 
 	item_code = build_item_code(doc)
 	ensure_item_code_available(item_code, doc)
@@ -140,6 +148,55 @@ def should_generate_item_code(doc):
 
 	item_code = cstr(doc.get("item_code")).strip()
 	return not item_code or is_temporary_item_code(item_code) or is_standard_variant_item_code(doc, item_code)
+
+
+def should_regenerate_new_spare_part_item_code(doc):
+	if not doc.is_new() or doc.get(ITEM_GROUP_FIELD) not in PRODUCT_ITEM_GROUPS:
+		return False
+
+	if not doc.get(SPARE_PART_FIELD):
+		return False
+
+	current_item_code = cstr(doc.get("item_code")).strip()
+	if not current_item_code:
+		return False
+
+	return current_item_code != build_product_prefix(doc)
+
+
+def should_rename_product_variant_for_spare_part_change(doc):
+	if doc.is_new() or not is_product_variant(doc):
+		return False
+
+	if not has_spare_part_changed(doc):
+		return False
+
+	expected_item_code = build_product_prefix(doc)
+	current_name = cstr(doc.get("name")).strip()
+	return bool(expected_item_code and current_name and current_name != expected_item_code)
+
+
+def should_rename_product_item_for_spare_part_change(doc):
+	if doc.is_new() or doc.get(ITEM_GROUP_FIELD) not in PRODUCT_ITEM_GROUPS or doc.get(ITEM_VARIANT_FIELD):
+		return False
+
+	if not has_spare_part_changed(doc):
+		return False
+
+	expected_item_code = build_product_prefix(doc)
+	current_name = cstr(doc.get("name")).strip()
+	return bool(expected_item_code and current_name and current_name != expected_item_code)
+
+
+def has_spare_part_changed(doc):
+	if hasattr(doc, "has_value_changed"):
+		return doc.has_value_changed(SPARE_PART_FIELD)
+
+	before_save = doc.get_doc_before_save() if hasattr(doc, "get_doc_before_save") else None
+	if not before_save:
+		return False
+
+	return cstr(before_save.get(SPARE_PART_FIELD)).strip() != cstr(doc.get(SPARE_PART_FIELD)).strip()
 
 
 def is_product_variant(doc):
@@ -191,16 +248,16 @@ def build_product_prefix(doc):
 		_("Brand"),
 	)
 	item_name = get_product_item_abbreviation(doc)
-	item_variant = get_product_variant_abbreviation(doc)
 
 	parts = [brand, item_name]
 
-	if item_variant:
-		parts.append(item_variant)
+	if doc.get(ITEM_VARIANT_FIELD):
+		parts.extend(get_variant_attribute_segments(doc))
 
-	if doc.get(SPARE_PART_FIELD):
+	spare_part = get_product_spare_part(doc)
+	if spare_part:
 		parts.append(
-			get_spare_part_abbreviation(doc.get(SPARE_PART_FIELD))
+			get_spare_part_abbreviation(spare_part)
 		)
 
 	return build_prefix(parts)
@@ -219,10 +276,59 @@ def get_product_item_abbreviation(doc):
 
 
 def get_product_variant_abbreviation(doc):
-	if doc.get(ITEM_VARIANT_FIELD):
-		return get_required_field_abbreviation(doc, ITEM_NAME_ABBREVIATION_FIELD, _("Item Variant"))
-
 	return None
+
+
+def get_product_spare_part(doc):
+	return doc.get(SPARE_PART_FIELD)
+
+
+def get_variant_attribute_segments(doc):
+	validate_variant_attribute_metadata()
+	segments = []
+	seen_attributes = set()
+
+	for index, row in enumerate(doc.get(VARIANT_ATTRIBUTES_FIELD) or [], start=1):
+		attribute_name = cstr(row.get(VARIANT_ATTRIBUTE_FIELD)).strip()
+		attribute_value = cstr(row.get(VARIANT_ATTRIBUTE_VALUE_FIELD)).strip()
+
+		if not attribute_name:
+			frappe.throw(
+				_("Cannot generate Variant Item Code because Attribute is missing in row {0}.").format(index)
+			)
+
+		if attribute_name in seen_attributes:
+			frappe.throw(
+				_("Cannot generate Variant Item Code because Attribute {0} is selected more than once.").format(
+					attribute_name
+				)
+			)
+
+		if not attribute_value:
+			frappe.throw(
+				_("Cannot generate Variant Item Code because Attribute Value is required for variant attribute {0}.").format(
+					attribute_name
+				)
+			)
+
+		attribute_segment = sanitize_code_segment(attribute_name)
+		value_segment = sanitize_code_segment(
+			get_attribute_value_abbreviation(attribute_name, attribute_value)
+		)
+		if not attribute_segment or not value_segment:
+			frappe.throw(
+				_("Cannot generate Variant Item Code because Attribute {0} has an invalid code segment.").format(
+					attribute_name
+				)
+			)
+
+		seen_attributes.add(attribute_name)
+		segments.extend([attribute_segment, value_segment])
+
+	if not segments:
+		frappe.throw(_("Cannot generate Variant Item Code because no selected Item Attributes were found."))
+
+	return segments
 
 
 def build_service_prefix(doc):
@@ -389,9 +495,6 @@ def validate_item_attribute_value_metadata():
 	table_field = attribute_meta.get_field(ITEM_ATTRIBUTE_VALUES_FIELD)
 	if not table_field or table_field.fieldtype != "Table" or table_field.options != ITEM_ATTRIBUTE_VALUE_DOCTYPE:
 		frappe.throw(_("Cannot generate Variant Item Code because Item Attribute Values table is not configured."))
-
-	if not attribute_meta.has_field(USE_FOR_ITEM_CODE_FIELD):
-		frappe.throw(_("Cannot generate Variant Item Code because Use for Item Code field is missing in Item Attribute."))
 
 	child_meta = frappe.get_meta(ITEM_ATTRIBUTE_VALUE_DOCTYPE)
 	for fieldname in (ITEM_ATTRIBUTE_VALUE_FIELD, ITEM_ATTRIBUTE_VALUE_ABBREVIATION_FIELD):

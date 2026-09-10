@@ -6,6 +6,7 @@ app_email = "shivani.panwar@vigisolvo.com"
 app_license = "mit"
 
 fixtures = [
+    {"dt": "Custom Field", "filters": [["module", "=", "Dekure Custom"]]},
     {"dt": "Custom Field", "filters": [["dt", "in", ["Quotation", "Delivery Note", "Sales Invoice", "Sales Order"]]]},
     {"dt": "Custom Field", "filters": [["name", "in", ["Item-spare_part", "Item-services", "Item-item_abbreviation", "Brand-b_abbreviation", "Item Attribute-use_for_item_code"]]]},
     {"dt": "Property Setter", "filters": [["name", "in", ["Item-item_code-reqd", "Item-item_code-read_only"]]]},

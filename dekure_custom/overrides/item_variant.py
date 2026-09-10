@@ -8,13 +8,11 @@ from dekure_custom.overrides.item import (
 	SUPPORTED_ITEM_GROUPS,
 	is_standard_variant_item_code,
 	is_temporary_item_code,
-	populate_variant_fields_from_item_attribute,
 )
 
 
 def create_variant(item, args, use_template_image=False):
 	variant = erpnext_item_variant.create_variant(item, args, use_template_image=use_template_image)
-	populate_variant_fields_from_item_attribute(variant)
 	clear_standard_variant_item_code(variant)
 	return variant
 
@@ -23,12 +21,10 @@ def create_variant_doc_for_quick_entry(template, args):
 	variant = erpnext_item_variant.create_variant_doc_for_quick_entry(template, args)
 
 	if isinstance(variant, dict):
-		variant_doc = frappe._dict(variant)
-		populate_variant_fields_from_item_attribute(variant_doc)
-		variant["item_abbreviation"] = variant_doc.get("item_abbreviation")
 		clear_standard_variant_item_code(variant)
 
 	return variant
+
 
 @frappe.whitelist()
 def enqueue_multiple_variant_creation(item, args, use_template_image=False):

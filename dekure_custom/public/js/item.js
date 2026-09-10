@@ -46,7 +46,7 @@ function set_item_group_fields(frm) {
 }
 
 async function update_variant_item_code_from_spare_part(frm) {
-	if (!["Product", "Products"].includes(frm.doc.item_group) || !frm.doc.variant_of) {
+	if (!["Product", "Products"].includes(frm.doc.item_group)) {
 		return;
 	}
 
