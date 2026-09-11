@@ -6,6 +6,8 @@ from frappe.utils import cstr
 from dekure_custom.overrides.item import (
 	ITEM_GROUP_FIELD,
 	SUPPORTED_ITEM_GROUPS,
+	VARIANT_ATTRIBUTE_FIELD,
+	VARIANT_ATTRIBUTE_VALUE_FIELD,
 	is_standard_variant_item_code,
 	is_temporary_item_code,
 )
@@ -13,6 +15,7 @@ from dekure_custom.overrides.item import (
 
 def create_variant(item, args, use_template_image=False):
 	variant = erpnext_item_variant.create_variant(item, args, use_template_image=use_template_image)
+	set_variant_item_name_from_attributes(item, variant)
 	clear_standard_variant_item_code(variant)
 	return variant
 
@@ -21,9 +24,35 @@ def create_variant_doc_for_quick_entry(template, args):
 	variant = erpnext_item_variant.create_variant_doc_for_quick_entry(template, args)
 
 	if isinstance(variant, dict):
+		set_variant_item_name_from_attributes(template, variant)
 		clear_standard_variant_item_code(variant)
 
 	return variant
+
+
+def set_variant_item_name_from_attributes(template, variant):
+	doc = frappe._dict(variant) if isinstance(variant, dict) else variant
+	template_item_name = frappe.db.get_value("Item", template, "item_name")
+	if not template_item_name:
+		return
+
+	attribute_values = []
+	for row in doc.get("attributes") or []:
+		attribute_name = cstr(row.get(VARIANT_ATTRIBUTE_FIELD)).strip()
+		attribute_value = cstr(row.get(VARIANT_ATTRIBUTE_VALUE_FIELD)).strip()
+		if not attribute_name or not attribute_value:
+			continue
+
+		attribute_values.append(attribute_value)
+
+	if not attribute_values:
+		return
+
+	item_name = "{}-{}".format(template_item_name, "-".join(attribute_values))
+	if isinstance(variant, dict):
+		variant["item_name"] = item_name
+	else:
+		variant.item_name = item_name
 
 
 @frappe.whitelist()
