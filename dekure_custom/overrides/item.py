@@ -4,7 +4,6 @@ import frappe
 from frappe import _
 from frappe.utils import cstr
 from frappe.utils.synchronization import filelock
-from erpnext.controllers.item_variant import make_variant_item_code
 
 
 ITEM_GROUP_FIELD = "item_group"
@@ -34,6 +33,7 @@ ITEM_ATTRIBUTE_VALUES_FIELD = "item_attribute_values"
 ITEM_ATTRIBUTE_VALUE_DOCTYPE = "Item Attribute Value"
 ITEM_ATTRIBUTE_VALUE_FIELD = "attribute_value"
 ITEM_ATTRIBUTE_VALUE_ABBREVIATION_FIELD = "abbr"
+ITEM_ATTRIBUTE_VALUE_SPARE_PART_FIELD = "spare_part"
 USE_FOR_ITEM_CODE_FIELD = "use_for_item_code"
 
 
@@ -228,8 +228,40 @@ def get_standard_variant_item_code(doc):
 			"attributes": [normalize_attribute(attribute) for attribute in doc.get("attributes") or []],
 		}
 	)
-	make_variant_item_code(template_item_code, template_item_name, variant)
+	make_safe_standard_variant_item_code(template_item_code, template_item_name, variant)
 	return variant.item_code
+
+
+def make_safe_standard_variant_item_code(template_item_code, template_item_name, variant):
+	if variant.item_code:
+		return
+
+	abbreviations = []
+	for attr in variant.attributes:
+		item_attribute = frappe.db.sql(
+			"""select i.numeric_values, v.abbr
+			from `tabItem Attribute` i left join `tabItem Attribute Value` v
+				on (i.name=v.parent)
+			where i.name=%(attribute)s and (v.attribute_value=%(attribute_value)s or i.numeric_values = 1)""",
+			{"attribute": attr.attribute, "attribute_value": attr.attribute_value},
+			as_dict=True,
+		)
+
+		if not item_attribute:
+			continue
+
+		abbr_or_value = cstr(attr.attribute_value) if item_attribute[0].numeric_values else cstr(
+			item_attribute[0].abbr
+		).strip()
+		if not abbr_or_value:
+			abbr_or_value = cstr(attr.attribute_value).strip()
+
+		if abbr_or_value:
+			abbreviations.append(abbr_or_value)
+
+	if abbreviations:
+		variant.item_code = "{}-{}".format(template_item_code, "-".join(abbreviations))
+		variant.item_name = "{}-{}".format(template_item_name, "-".join(abbreviations))
 
 
 def normalize_attribute(attribute):
@@ -286,6 +318,7 @@ def get_product_spare_part(doc):
 def get_variant_attribute_segments(doc):
 	validate_variant_attribute_metadata()
 	segments = []
+	spare_part_segments = []
 	seen_attributes = set()
 
 	for index, row in enumerate(doc.get(VARIANT_ATTRIBUTES_FIELD) or [], start=1):
@@ -325,9 +358,14 @@ def get_variant_attribute_segments(doc):
 		if value_segment:
 			segments.append(value_segment)
 
+		spare_part = get_attribute_value_spare_part(attribute_name, attribute_value)
+		if spare_part:
+			spare_part_segments.append(get_spare_part_abbreviation(spare_part))
+
 	if not segments:
 		frappe.throw(_("Cannot generate Variant Item Code because no selected Item Attributes were found."))
 
+	segments.extend(spare_part_segments)
 	return segments
 
 
@@ -453,6 +491,20 @@ def get_attribute_value_abbreviation(attribute_name, attribute_value):
 			attribute_name,
 		)
 	)
+
+
+def get_attribute_value_spare_part(attribute_name, attribute_value):
+	if not frappe.get_meta(ITEM_ATTRIBUTE_VALUE_DOCTYPE).has_field(ITEM_ATTRIBUTE_VALUE_SPARE_PART_FIELD):
+		return None
+
+	attribute_doc = frappe.get_doc(ITEM_ATTRIBUTE_DOCTYPE, attribute_name)
+
+	for row in attribute_doc.get(ITEM_ATTRIBUTE_VALUES_FIELD) or []:
+		row_attribute_value = cstr(row.get(ITEM_ATTRIBUTE_VALUE_FIELD)).strip()
+		if row_attribute_value == cstr(attribute_value).strip():
+			return row.get(ITEM_ATTRIBUTE_VALUE_SPARE_PART_FIELD)
+
+	return None
 
 
 def validate_variant_attribute_metadata():
