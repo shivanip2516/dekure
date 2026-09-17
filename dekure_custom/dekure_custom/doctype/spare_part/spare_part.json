@@ -36,7 +36,8 @@
  "modified_by": "Administrator",
  "module": "Dekure Custom",
  "name": "Spare Part",
- "naming_rule": "Random",
+ "autoname": "SP-{.YYYY.}-{.#####}",
+  "naming_rule": "Expression (Old Style)",
  "owner": "Administrator",
  "permissions": [
   {

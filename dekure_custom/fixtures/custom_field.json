@@ -105,6 +105,32 @@
     },
     {
         "doctype": "Custom Field",
+        "dt": "Item Attribute Value",
+        "name": "Item Attribute Value-spare_part",
+        "fieldname": "spare_part",
+        "fieldtype": "Link",
+        "label": "Spare Part",
+        "options": "Spare Part",
+        "insert_after": "abbr",
+        "in_list_view": 0,
+        "reqd": 0,
+        "read_only": 0
+    },
+    {
+        "doctype": "Custom Field",
+        "dt": "Item Variant Attribute",
+        "name": "Item Variant Attribute-item_attribute_value",
+        "fieldname": "item_attribute_value",
+        "fieldtype": "Link",
+        "label": "Item Attribute Value Row",
+        "options": "Item Attribute Value",
+        "insert_after": "attribute_value",
+        "hidden": 1,
+        "read_only": 1,
+        "reqd": 0
+    },
+    {
+        "doctype": "Custom Field",
         "dt": "Employee",
         "name": "Employee-attendance_approver",
         "fieldname": "attendance_approver",

@@ -4,7 +4,6 @@ import frappe
 from frappe import _
 from frappe.utils import cstr
 from frappe.utils.synchronization import filelock
-from erpnext.controllers.item_variant import make_variant_item_code
 
 
 ITEM_GROUP_FIELD = "item_group"
@@ -29,36 +28,49 @@ VARIANT_ATTRIBUTES_FIELD = "attributes"
 VARIANT_ATTRIBUTE_DOCTYPE = "Item Variant Attribute"
 VARIANT_ATTRIBUTE_FIELD = "attribute"
 VARIANT_ATTRIBUTE_VALUE_FIELD = "attribute_value"
+VARIANT_ATTRIBUTE_VALUE_ROW_FIELD = "item_attribute_value"
 ITEM_ATTRIBUTE_DOCTYPE = "Item Attribute"
 ITEM_ATTRIBUTE_VALUES_FIELD = "item_attribute_values"
 ITEM_ATTRIBUTE_VALUE_DOCTYPE = "Item Attribute Value"
 ITEM_ATTRIBUTE_VALUE_FIELD = "attribute_value"
 ITEM_ATTRIBUTE_VALUE_ABBREVIATION_FIELD = "abbr"
+ITEM_ATTRIBUTE_VALUE_SPARE_PART_FIELD = "spare_part"
 USE_FOR_ITEM_CODE_FIELD = "use_for_item_code"
 
 
 def before_insert_item(doc, method=None):
-	if doc.get(ITEM_VARIANT_FIELD):
-		populate_variant_fields_from_item_attribute(doc)
-
 	generate_item_code(doc, method=method)
 
 
 def validate_item(doc, method=None):
+	if should_rename_product_item_for_spare_part_change(doc):
+		doc.flags.dekure_custom_rename_for_spare_part_change = True
+		return
+
 	if not is_product_variant(doc):
 		return
 
-	populate_variant_fields_from_item_attribute(doc)
-	expected_item_code = build_product_prefix(doc)
-	current_item_code = cstr(doc.get("item_code")).strip()
+	if should_rename_product_variant_for_spare_part_change(doc):
+		doc.flags.dekure_custom_rename_for_spare_part_change = True
+		return
 
-	if doc.is_new() or should_generate_item_code(doc) or current_item_code != expected_item_code:
-		ensure_item_code_available(expected_item_code, doc)
-		set_generated_item_code(doc, expected_item_code)
+	if not (doc.is_new() or should_generate_item_code(doc)):
+		return
+
+	expected_item_code = build_product_prefix(doc)
+
+	ensure_item_code_available(expected_item_code, doc)
+	set_generated_item_code(doc, expected_item_code)
 
 
 def on_update_item(doc, method=None):
-	if not is_product_variant(doc):
+	if not (is_product_variant(doc) or doc.flags.get("dekure_custom_rename_for_spare_part_change")):
+		return
+
+	if not (
+		doc.flags.get("dekure_custom_item_code_generated")
+		or doc.flags.get("dekure_custom_rename_for_spare_part_change")
+	):
 		return
 
 	expected_item_code = build_product_prefix(doc)
@@ -79,11 +91,11 @@ def on_update_item(doc, method=None):
 
 
 def generate_item_code(doc, method=None):
-	if not should_generate_item_code(doc):
-		return
-
 	item_group = doc.get(ITEM_GROUP_FIELD)
 	if item_group not in SUPPORTED_ITEM_GROUPS:
+		return
+
+	if not should_generate_item_code(doc) and not should_regenerate_new_spare_part_item_code(doc):
 		return
 
 	with filelock("dekure_custom_item_code_generation", timeout=30):
@@ -97,9 +109,6 @@ def generate_item_code(doc, method=None):
 @frappe.whitelist()
 def preview_item_code(doc):
 	doc = frappe.get_doc(frappe.parse_json(doc))
-
-	if doc.get(ITEM_VARIANT_FIELD):
-		populate_variant_fields_from_item_attribute(doc)
 
 	item_code = build_item_code(doc)
 	ensure_item_code_available(item_code, doc)
@@ -142,6 +151,55 @@ def should_generate_item_code(doc):
 	return not item_code or is_temporary_item_code(item_code) or is_standard_variant_item_code(doc, item_code)
 
 
+def should_regenerate_new_spare_part_item_code(doc):
+	if not doc.is_new() or doc.get(ITEM_GROUP_FIELD) not in PRODUCT_ITEM_GROUPS:
+		return False
+
+	if not doc.get(SPARE_PART_FIELD):
+		return False
+
+	current_item_code = cstr(doc.get("item_code")).strip()
+	if not current_item_code:
+		return False
+
+	return current_item_code != build_product_prefix(doc)
+
+
+def should_rename_product_variant_for_spare_part_change(doc):
+	if doc.is_new() or not is_product_variant(doc):
+		return False
+
+	if not has_spare_part_changed(doc):
+		return False
+
+	expected_item_code = build_product_prefix(doc)
+	current_name = cstr(doc.get("name")).strip()
+	return bool(expected_item_code and current_name and current_name != expected_item_code)
+
+
+def should_rename_product_item_for_spare_part_change(doc):
+	if doc.is_new() or doc.get(ITEM_GROUP_FIELD) not in PRODUCT_ITEM_GROUPS or doc.get(ITEM_VARIANT_FIELD):
+		return False
+
+	if not has_spare_part_changed(doc):
+		return False
+
+	expected_item_code = build_product_prefix(doc)
+	current_name = cstr(doc.get("name")).strip()
+	return bool(expected_item_code and current_name and current_name != expected_item_code)
+
+
+def has_spare_part_changed(doc):
+	if hasattr(doc, "has_value_changed"):
+		return doc.has_value_changed(SPARE_PART_FIELD)
+
+	before_save = doc.get_doc_before_save() if hasattr(doc, "get_doc_before_save") else None
+	if not before_save:
+		return False
+
+	return cstr(before_save.get(SPARE_PART_FIELD)).strip() != cstr(doc.get(SPARE_PART_FIELD)).strip()
+
+
 def is_product_variant(doc):
 	return doc.get(ITEM_GROUP_FIELD) in PRODUCT_ITEM_GROUPS and bool(doc.get(ITEM_VARIANT_FIELD))
 
@@ -171,8 +229,51 @@ def get_standard_variant_item_code(doc):
 			"attributes": [normalize_attribute(attribute) for attribute in doc.get("attributes") or []],
 		}
 	)
-	make_variant_item_code(template_item_code, template_item_name, variant)
+	make_safe_standard_variant_item_code(template_item_code, template_item_name, variant)
 	return variant.item_code
+
+
+def make_safe_standard_variant_item_code(template_item_code, template_item_name, variant):
+	if variant.item_code:
+		return
+
+	abbreviations = []
+	for attr in variant.attributes:
+		attribute_value_row = cstr(attr.get(VARIANT_ATTRIBUTE_VALUE_ROW_FIELD)).strip()
+		if attribute_value_row:
+			item_attribute = frappe.db.sql(
+				"""select i.numeric_values, v.abbr
+				from `tabItem Attribute` i left join `tabItem Attribute Value` v
+					on (i.name=v.parent)
+				where i.name=%(attribute)s and v.name=%(attribute_value_row)s""",
+				{"attribute": attr.attribute, "attribute_value_row": attribute_value_row},
+				as_dict=True,
+			)
+		else:
+			item_attribute = frappe.db.sql(
+				"""select i.numeric_values, v.abbr
+				from `tabItem Attribute` i left join `tabItem Attribute Value` v
+					on (i.name=v.parent)
+				where i.name=%(attribute)s and (v.attribute_value=%(attribute_value)s or i.numeric_values = 1)""",
+				{"attribute": attr.attribute, "attribute_value": attr.attribute_value},
+				as_dict=True,
+			)
+
+		if not item_attribute:
+			continue
+
+		abbr_or_value = cstr(attr.attribute_value) if item_attribute[0].numeric_values else cstr(
+			item_attribute[0].abbr
+		).strip()
+		if not abbr_or_value:
+			abbr_or_value = cstr(attr.attribute_value).strip()
+
+		if abbr_or_value:
+			abbreviations.append(abbr_or_value)
+
+	if abbreviations:
+		variant.item_code = "{}-{}".format(template_item_code, "-".join(abbreviations))
+		variant.item_name = "{}-{}".format(template_item_name, "-".join(abbreviations))
 
 
 def normalize_attribute(attribute):
@@ -191,16 +292,16 @@ def build_product_prefix(doc):
 		_("Brand"),
 	)
 	item_name = get_product_item_abbreviation(doc)
-	item_variant = get_product_variant_abbreviation(doc)
 
 	parts = [brand, item_name]
 
-	if item_variant:
-		parts.append(item_variant)
+	if doc.get(ITEM_VARIANT_FIELD):
+		parts.extend(get_variant_attribute_segments(doc, item_name))
 
-	if doc.get(SPARE_PART_FIELD):
+	spare_part = get_product_spare_part(doc)
+	if spare_part:
 		parts.append(
-			get_spare_part_abbreviation(doc.get(SPARE_PART_FIELD))
+			get_spare_part_abbreviation(spare_part)
 		)
 
 	return build_prefix(parts)
@@ -219,10 +320,72 @@ def get_product_item_abbreviation(doc):
 
 
 def get_product_variant_abbreviation(doc):
-	if doc.get(ITEM_VARIANT_FIELD):
-		return get_required_field_abbreviation(doc, ITEM_NAME_ABBREVIATION_FIELD, _("Item Variant"))
-
 	return None
+
+
+def get_product_spare_part(doc):
+	return doc.get(SPARE_PART_FIELD)
+
+
+def get_variant_attribute_segments(doc, item_name=None):
+	validate_variant_attribute_metadata()
+	segments = []
+	spare_part_segments = []
+	seen_attributes = set()
+	item_segment = sanitize_code_segment(item_name)
+
+	for index, row in enumerate(doc.get(VARIANT_ATTRIBUTES_FIELD) or [], start=1):
+		attribute_name = cstr(row.get(VARIANT_ATTRIBUTE_FIELD)).strip()
+		attribute_value = cstr(row.get(VARIANT_ATTRIBUTE_VALUE_FIELD)).strip()
+		attribute_value_row = cstr(row.get(VARIANT_ATTRIBUTE_VALUE_ROW_FIELD)).strip()
+
+		if not attribute_name:
+			frappe.throw(
+				_("Cannot generate Variant Item Code because Attribute is missing in row {0}.").format(index)
+			)
+
+		if attribute_name in seen_attributes:
+			frappe.throw(
+				_("Cannot generate Variant Item Code because Attribute {0} is selected more than once.").format(
+					attribute_name
+				)
+			)
+
+		if not attribute_value:
+			frappe.throw(
+				_("Cannot generate Variant Item Code because Attribute Value is required for variant attribute {0}.").format(
+					attribute_name
+				)
+			)
+
+		attribute_segment = sanitize_code_segment(attribute_name)
+		value_segment = sanitize_code_segment(
+			get_attribute_value_abbreviation(attribute_name, attribute_value, attribute_value_row)
+		)
+		if not attribute_segment:
+			frappe.throw(
+				_("Cannot generate Variant Item Code because Attribute {0} has an invalid code segment.").format(
+					attribute_name
+				)
+			)
+
+		seen_attributes.add(attribute_name)
+		if attribute_segment != item_segment:
+			segments.append(attribute_segment)
+		if value_segment:
+			segments.append(value_segment)
+
+		spare_part = get_attribute_value_spare_part(attribute_name, attribute_value, attribute_value_row)
+		if spare_part and cstr(spare_part).strip() == cstr(doc.get(SPARE_PART_FIELD)).strip():
+			spare_part = None
+		if spare_part:
+			spare_part_segments.append(get_spare_part_abbreviation(spare_part))
+
+	if not segments:
+		frappe.throw(_("Cannot generate Variant Item Code because no selected Item Attributes were found."))
+
+	segments.extend(spare_part_segments)
+	return segments
 
 
 def build_service_prefix(doc):
@@ -332,23 +495,18 @@ def get_item_code_variant_attribute(doc):
 	return configured_rows[0]
 
 
-def get_attribute_value_abbreviation(attribute_name, attribute_value):
+def get_attribute_value_abbreviation(attribute_name, attribute_value, attribute_value_row=None):
 	validate_item_attribute_value_metadata()
+	row = get_item_attribute_value_row(attribute_name, attribute_value, attribute_value_row)
+	if row:
+		return cstr(row.get(ITEM_ATTRIBUTE_VALUE_ABBREVIATION_FIELD)).strip()
+
 	attribute_doc = frappe.get_doc(ITEM_ATTRIBUTE_DOCTYPE, attribute_name)
 
 	for row in attribute_doc.get(ITEM_ATTRIBUTE_VALUES_FIELD) or []:
 		row_attribute_value = cstr(row.get(ITEM_ATTRIBUTE_VALUE_FIELD)).strip()
 		if row_attribute_value == cstr(attribute_value).strip():
-			abbreviation = cstr(row.get(ITEM_ATTRIBUTE_VALUE_ABBREVIATION_FIELD)).strip()
-			if not abbreviation:
-				frappe.throw(
-					_("Abbreviation is missing for Attribute Value {0} in Item Attribute {1}.").format(
-						attribute_value,
-						attribute_name,
-					)
-				)
-
-			return abbreviation
+			return cstr(row.get(ITEM_ATTRIBUTE_VALUE_ABBREVIATION_FIELD)).strip()
 
 	frappe.throw(
 		_("Attribute Value {0} was not found in Item Attribute {1}.").format(
@@ -356,6 +514,51 @@ def get_attribute_value_abbreviation(attribute_name, attribute_value):
 			attribute_name,
 		)
 	)
+
+
+def get_attribute_value_spare_part(attribute_name, attribute_value, attribute_value_row=None):
+	if not frappe.get_meta(ITEM_ATTRIBUTE_VALUE_DOCTYPE).has_field(ITEM_ATTRIBUTE_VALUE_SPARE_PART_FIELD):
+		return None
+
+	row = get_item_attribute_value_row(attribute_name, attribute_value, attribute_value_row)
+	if row:
+		return row.get(ITEM_ATTRIBUTE_VALUE_SPARE_PART_FIELD)
+
+	attribute_doc = frappe.get_doc(ITEM_ATTRIBUTE_DOCTYPE, attribute_name)
+
+	for row in attribute_doc.get(ITEM_ATTRIBUTE_VALUES_FIELD) or []:
+		row_attribute_value = cstr(row.get(ITEM_ATTRIBUTE_VALUE_FIELD)).strip()
+		if row_attribute_value == cstr(attribute_value).strip():
+			return row.get(ITEM_ATTRIBUTE_VALUE_SPARE_PART_FIELD)
+
+	return None
+
+
+def get_item_attribute_value_row(attribute_name, attribute_value, attribute_value_row=None):
+	if not attribute_value_row:
+		return None
+
+	row = frappe.db.get_value(
+		ITEM_ATTRIBUTE_VALUE_DOCTYPE,
+		attribute_value_row,
+		[
+			"parent",
+			ITEM_ATTRIBUTE_VALUE_FIELD,
+			ITEM_ATTRIBUTE_VALUE_ABBREVIATION_FIELD,
+			ITEM_ATTRIBUTE_VALUE_SPARE_PART_FIELD,
+		],
+		as_dict=True,
+	)
+	if not row:
+		return None
+
+	if cstr(row.get("parent")).strip() != cstr(attribute_name).strip():
+		return None
+
+	if cstr(row.get(ITEM_ATTRIBUTE_VALUE_FIELD)).strip() != cstr(attribute_value).strip():
+		return None
+
+	return row
 
 
 def validate_variant_attribute_metadata():
@@ -389,9 +592,6 @@ def validate_item_attribute_value_metadata():
 	table_field = attribute_meta.get_field(ITEM_ATTRIBUTE_VALUES_FIELD)
 	if not table_field or table_field.fieldtype != "Table" or table_field.options != ITEM_ATTRIBUTE_VALUE_DOCTYPE:
 		frappe.throw(_("Cannot generate Variant Item Code because Item Attribute Values table is not configured."))
-
-	if not attribute_meta.has_field(USE_FOR_ITEM_CODE_FIELD):
-		frappe.throw(_("Cannot generate Variant Item Code because Use for Item Code field is missing in Item Attribute."))
 
 	child_meta = frappe.get_meta(ITEM_ATTRIBUTE_VALUE_DOCTYPE)
 	for fieldname in (ITEM_ATTRIBUTE_VALUE_FIELD, ITEM_ATTRIBUTE_VALUE_ABBREVIATION_FIELD):

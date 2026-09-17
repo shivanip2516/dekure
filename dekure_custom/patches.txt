@@ -7,3 +7,5 @@
 dekure_custom.patches.v1_0.set_item_code_properties
 dekure_custom.patches.v1_0.create_item_attribute_item_code_flag
 dekure_custom.patches.v1_0.set_item_number_not_required
+dekure_custom.patches.v1_0.create_item_attribute_value_spare_part
+dekure_custom.patches.v1_0.create_item_variant_attribute_value_row_link
