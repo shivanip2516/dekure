@@ -55,6 +55,7 @@ doctype_list_js = {
 }
 
 override_whitelisted_methods = {
+    "frappe.desk.query_report.run": "dekure_custom.overrides.stock_ledger_report.run",
     "erpnext.controllers.item_variant.create_variant": "dekure_custom.overrides.item_variant.create_variant",
     "erpnext.controllers.item_variant.create_variant_doc_for_quick_entry": "dekure_custom.overrides.item_variant.create_variant_doc_for_quick_entry",
     "erpnext.controllers.item_variant.enqueue_multiple_variant_creation": "dekure_custom.overrides.item_variant.enqueue_multiple_variant_creation",
