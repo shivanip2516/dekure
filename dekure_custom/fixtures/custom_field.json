@@ -150,5 +150,53 @@
         "in_list_view": 0,
         "reqd": 0,
         "read_only": 0
+    },
+    {
+        "doctype": "Custom Field",
+        "name": "Sales Invoice-custom_buyers_order_no",
+        "dt": "Sales Invoice",
+        "fieldname": "custom_buyers_order_no",
+        "fieldtype": "Data",
+        "label": "Buyer's Order No.",
+        "insert_after": "due_date",
+        "in_list_view": 0,
+        "reqd": 0,
+        "read_only": 0
+    },
+    {
+        "doctype": "Custom Field",
+        "name": "Sales Invoice-custom_buyers_order_date",
+        "dt": "Sales Invoice",
+        "fieldname": "custom_buyers_order_date",
+        "fieldtype": "Date",
+        "label": "Dated",
+        "insert_after": "custom_buyers_order_no",
+        "in_list_view": 0,
+        "reqd": 0,
+        "read_only": 0
+    },
+    {
+        "doctype": "Custom Field",
+        "name": "Sales Invoice-custom_dispatch_doc_no",
+        "dt": "Sales Invoice",
+        "fieldname": "custom_dispatch_doc_no",
+        "fieldtype": "Data",
+        "label": "Dispatch Doc No.",
+        "insert_after": "custom_buyers_order_date",
+        "in_list_view": 0,
+        "reqd": 0,
+        "read_only": 0
+    },
+    {
+        "doctype": "Custom Field",
+        "name": "Sales Invoice-custom_delivery_note_date",
+        "dt": "Sales Invoice",
+        "fieldname": "custom_delivery_note_date",
+        "fieldtype": "Date",
+        "label": "Delivery Note Date",
+        "insert_after": "custom_dispatch_doc_no",
+        "in_list_view": 0,
+        "reqd": 0,
+        "read_only": 0
     }
 ]
