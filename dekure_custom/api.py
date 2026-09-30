@@ -6,7 +6,7 @@ import requests
 import frappe
 from frappe import _
 from frappe.query_builder import Order
-from frappe.utils import get_datetime, get_url, getdate, get_time, now_datetime, nowdate
+from frappe.utils import flt, get_datetime, get_url, getdate, get_time, now_datetime, nowdate
 
 
 MISSED_CHECKIN = "Missed Check-in"
@@ -188,9 +188,6 @@ def review_missed_punch_request(name, action, rejection_reason=None):
     if not request.has_permission("write"):
         frappe.throw(_("You do not have write/review permission for this request"), frappe.PermissionError)
 
-    employee_user = frappe.db.get_value("Employee", request.employee, "user_id")
-    if frappe.session.user == employee_user:
-        frappe.throw(_("You cannot approve or reject your own missed check-out request"), frappe.PermissionError)
     if frappe.session.user != request.attendance_approver:
         frappe.throw(_("Only the assigned Shift Approver can review this request"), frappe.PermissionError)
     if request.status != PENDING:
@@ -204,28 +201,39 @@ def review_missed_punch_request(name, action, rejection_reason=None):
         requested_time = get_time(request.requested_time)
         if not requested_time:
             frappe.throw(_("No requested punch time is configured for this request."))
-        _validate_missed_punch(
-            request.employee, attendance_date, request.request_type, exclude_request=request.name
-        )
         _validate_requested_punch_time(
             request.employee, attendance_date, request.request_type, requested_time
         )
         log_type = "IN" if request.request_type == MISSED_CHECKIN else "OUT"
-        latitude = longitude = None
+        requested_datetime = get_datetime(f"{attendance_date} {requested_time}")
+        checkin = _get_equivalent_checkin(request.employee, requested_datetime, log_type)
+        if not checkin:
+            _validate_missed_punch(
+                request.employee, attendance_date, request.request_type, exclude_request=request.name
+            )
+            if request.request_type == MISSED_CHECKOUT:
+                _validate_checkin_has_shift(request.employee, requested_datetime)
+            latitude = longitude = None
+            if request.request_type == MISSED_CHECKOUT:
+                latitude, longitude = _validate_coordinates(request.latitude, request.longitude)
+            checkin = frappe.get_doc(
+                {
+                    "doctype": "Employee Checkin",
+                    "employee": request.employee,
+                    "log_type": log_type,
+                    "time": requested_datetime,
+                    "latitude": latitude,
+                    "longitude": longitude,
+                }
+            )
+            checkin.flags.attendance_regularization_request = request.name
+            checkin.insert(ignore_permissions=True)
+        elif checkin.skip_auto_attendance:
+            frappe.throw(_("The matching Employee Checkin is marked to Skip Auto Attendance."))
+
         if request.request_type == MISSED_CHECKOUT:
-            latitude, longitude = _validate_coordinates(request.latitude, request.longitude)
-        checkin = frappe.get_doc(
-            {
-                "doctype": "Employee Checkin",
-                "employee": request.employee,
-                "log_type": log_type,
-                "time": get_datetime(f"{attendance_date} {requested_time}"),
-                "latitude": latitude,
-                "longitude": longitude,
-            }
-        )
-        checkin.flags.attendance_regularization_request = request.name
-        checkin.insert(ignore_permissions=True)
+            _reconcile_regularized_attendance(checkin)
+
         request.db_set(
             {
                 "status": "Approved",
@@ -293,6 +301,210 @@ def _first_log(logs, log_type):
 def _get_existing_checkin_time(employee, attendance_date):
     checkin = _first_log(_day_logs(employee, attendance_date), "IN")
     return checkin.time if checkin else None
+
+
+def _get_equivalent_checkin(employee, timestamp, log_type):
+    name = frappe.db.exists(
+        "Employee Checkin",
+        {"employee": employee, "time": get_datetime(timestamp), "log_type": log_type},
+    )
+    return frappe.get_doc("Employee Checkin", name) if name else None
+
+
+def _validate_checkin_has_shift(employee, timestamp):
+    from hrms.hr.doctype.shift_assignment.shift_assignment import get_actual_start_end_datetime_of_shift
+
+    shift_details = get_actual_start_end_datetime_of_shift(
+        employee, get_datetime(timestamp), consider_default_shift=True
+    )
+    if not shift_details:
+        frappe.throw(
+            _(
+                "Requested check-out time {0} is outside the configured shift window for this employee."
+            ).format(timestamp)
+        )
+    if not getattr(shift_details, "shift_type", None):
+        frappe.throw(_("No shift is configured for this employee at {0}.").format(timestamp))
+    return shift_details
+
+
+def _reconcile_regularized_attendance(checkin):
+    if checkin.offshift or not checkin.shift:
+        frappe.throw(
+            _("Requested check-out time {0} is outside the configured shift window.").format(checkin.time)
+        )
+    if checkin.skip_auto_attendance:
+        frappe.throw(_("Employee Checkin {0} is marked to Skip Auto Attendance.").format(checkin.name))
+
+    shift = frappe.get_doc("Shift Type", checkin.shift)
+    if not shift.enable_auto_attendance:
+        frappe.throw(_("Auto Attendance is not enabled for shift {0}.").format(checkin.shift))
+
+    attendance_date = getdate(checkin.shift_start or checkin.time)
+    existing_attendance = _get_existing_attendance(checkin.employee, attendance_date, checkin.shift)
+    logs = _get_regularization_shift_logs(checkin, existing_attendance.name if existing_attendance else None)
+    if not logs:
+        return
+
+    for log in logs:
+        if log.skip_auto_attendance:
+            frappe.throw(_("Employee Checkin {0} is marked to Skip Auto Attendance.").format(log.name))
+        if log.offshift or log.shift != checkin.shift:
+            frappe.throw(_("Employee Checkin {0} is not linked to shift {1}.").format(log.name, checkin.shift))
+
+    if not shift.should_mark_attendance(checkin.employee, attendance_date):
+        return
+
+    attendance_values = _calculate_attendance_from_shift_logs(shift, logs, attendance_date, checkin.employee)
+
+    if existing_attendance:
+        _validate_attendance_can_be_rebuilt(existing_attendance, logs)
+        if _attendance_already_matches(existing_attendance, logs, attendance_values):
+            return
+        existing_attendance.cancel()
+        frappe.delete_doc("Attendance", existing_attendance.name, force=True, ignore_permissions=True)
+
+    from hrms.hr.doctype.employee_checkin.employee_checkin import mark_attendance_and_link_log
+
+    mark_attendance_and_link_log(
+        logs, *attendance_values, shift=shift.name, overtime_type=logs[0].get("overtime_type")
+    )
+
+
+def _calculate_attendance_from_shift_logs(shift, logs, attendance_date, employee):
+    working_hours_threshold_for_half_day = flt(shift.working_hours_threshold_for_half_day)
+    working_hours_threshold_for_absent = flt(shift.working_hours_threshold_for_absent)
+    if shift.is_half_holiday(employee, attendance_date):
+        working_hours_threshold_for_half_day = working_hours_threshold_for_half_day / 2
+        working_hours_threshold_for_absent = working_hours_threshold_for_absent / 2
+
+    attendance_status, working_hours, late_entry, early_exit, in_time, out_time = shift.get_attendance(
+        logs, working_hours_threshold_for_absent, working_hours_threshold_for_half_day
+    )
+    return attendance_status, attendance_date, working_hours, late_entry, early_exit, in_time, out_time
+
+
+def _get_existing_attendance(employee, attendance_date, shift):
+    attendance_name = frappe.db.sql(
+        """
+        select name
+        from `tabAttendance`
+        where employee = %s
+            and attendance_date = %s
+            and docstatus < 2
+            and (shift = %s or shift is null or shift = '')
+        order by modified desc
+        limit 1
+        for update
+        """,
+        (employee, attendance_date, shift),
+    )
+    return frappe.get_doc("Attendance", attendance_name[0][0]) if attendance_name else None
+
+
+def _get_regularization_shift_logs(checkin, existing_attendance=None):
+    attendance_filter = "attendance is null or attendance = ''"
+    params = {
+        "employee": checkin.employee,
+        "shift": checkin.shift,
+        "shift_actual_start": checkin.shift_actual_start,
+        "shift_actual_end": checkin.shift_actual_end,
+    }
+    if existing_attendance:
+        attendance_filter = f"({attendance_filter} or attendance = %(attendance)s)"
+        params["attendance"] = existing_attendance
+
+    return frappe.db.sql(
+        f"""
+        select
+            name, employee, log_type, time, shift, shift_start, shift_end,
+            shift_actual_start, shift_actual_end, device_id, overtime_type,
+            skip_auto_attendance, offshift, attendance
+        from `tabEmployee Checkin`
+        where employee = %(employee)s
+            and shift = %(shift)s
+            and shift_actual_start = %(shift_actual_start)s
+            and shift_actual_end = %(shift_actual_end)s
+            and ({attendance_filter})
+        order by time asc
+        """,
+        params,
+        as_dict=True,
+    )
+
+
+def _validate_attendance_can_be_rebuilt(attendance, logs):
+    if attendance.docstatus != 1:
+        frappe.throw(
+            _("Attendance {0} is not submitted and cannot be automatically rebuilt.").format(
+                attendance.name
+            )
+        )
+    if attendance.status == "On Leave" or attendance.leave_application or attendance.leave_type:
+        frappe.throw(_("Attendance {0} is linked to leave and was not changed.").format(attendance.name))
+    if _has_submitted_salary_slip(attendance.employee, attendance.attendance_date):
+        frappe.throw(
+            _("Attendance {0} falls inside a submitted Salary Slip period and was not changed.").format(
+                attendance.name
+            )
+        )
+    if attendance.status not in ("Present", "Half Day", "Absent"):
+        frappe.throw(_("Attendance {0} has a protected status and was not changed.").format(attendance.name))
+    if not _attendance_has_auto_attendance_evidence(attendance, logs):
+        frappe.throw(
+            _("Attendance {0} does not appear to be auto-generated, so it was not changed.").format(
+                attendance.name
+            )
+        )
+
+
+def _has_submitted_salary_slip(employee, attendance_date):
+    return frappe.db.exists(
+        "Salary Slip",
+        {
+            "employee": employee,
+            "docstatus": 1,
+            "start_date": ["<=", attendance_date],
+            "end_date": [">=", attendance_date],
+        },
+    )
+
+
+def _attendance_has_auto_attendance_evidence(attendance, logs):
+    if any(log.attendance == attendance.name for log in logs):
+        return True
+    auto_attendance_comments = (
+        "Employee was marked Absent due to missing Employee Checkins.",
+        "Employee was marked Absent for not meeting the working hours threshold.",
+    )
+    return bool(
+        frappe.get_all(
+            "Comment",
+            filters={
+                "reference_doctype": "Attendance",
+                "reference_name": attendance.name,
+                "content": ["in", auto_attendance_comments],
+            },
+            limit=1,
+        )
+    )
+
+
+def _attendance_already_matches(attendance, logs, attendance_values):
+    attendance_status, attendance_date, working_hours, late_entry, early_exit, in_time, out_time = attendance_values
+    linked_log_names = {log.name for log in logs if log.attendance == attendance.name}
+    expected_log_names = {log.name for log in logs}
+    return (
+        attendance.status == attendance_status
+        and getdate(attendance.attendance_date) == getdate(attendance_date)
+        and (attendance.shift or "") == (logs[0].shift or "")
+        and flt(attendance.working_hours) == flt(working_hours)
+        and bool(attendance.late_entry) == bool(late_entry)
+        and bool(attendance.early_exit) == bool(early_exit)
+        and (get_datetime(attendance.in_time) if attendance.in_time else None) == in_time
+        and (get_datetime(attendance.out_time) if attendance.out_time else None) == out_time
+        and linked_log_names == expected_log_names
+    )
 
 
 def _has_pending_request(employee, attendance_date, request_type, exclude_request=None):
