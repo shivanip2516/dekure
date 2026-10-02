@@ -17,6 +17,7 @@ VISIT_IN_PROGRESS = "In Progress"
 VISIT_COMPLETED = "Completed"
 VISIT_CANCELLED = "Cancelled"
 VISIT_DOCTYPE = "Visit"
+VISIT_CUSTOMER_NOT_CONVERTED = "Not Converted Yet"
 VISIT_REVERSE_GEOCODE_URL = "https://nominatim.openstreetmap.org/reverse"
 VISIT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 VISIT_REVERSE_GEOCODE_TIMEOUT = 3
@@ -765,6 +766,7 @@ def create_visit_customer(customer_name, contact_person=None, mobile_no=None, em
             "mobile_no": (mobile_no or "").strip() or None,
             "email": (email or "").strip() or None,
             "address": (address or "").strip() or None,
+            "conversion_status": VISIT_CUSTOMER_NOT_CONVERTED,
             "employee": employee,
         }
     )
@@ -778,12 +780,13 @@ def create_visit_customer(customer_name, contact_person=None, mobile_no=None, em
         "mobile_no": customer_doc.mobile_no,
         "email": customer_doc.email,
         "address": customer_doc.address,
+        "conversion_status": customer_doc.conversion_status,
     }
 
 
 @frappe.whitelist()
 def get_visit_customers(txt=None):
-    """Return all PWA Visit Customers for selection."""
+    """Return unconverted PWA Visit Customers for selection."""
     filters = {}
     if txt and txt.strip():
         filters["customer_name"] = ["like", f"%{txt.strip()}%"]
@@ -791,6 +794,11 @@ def get_visit_customers(txt=None):
     records = frappe.get_all(
         "Visit Customer",
         filters=filters,
+        or_filters=[
+            ["Visit Customer", "conversion_status", "=", VISIT_CUSTOMER_NOT_CONVERTED],
+            ["Visit Customer", "conversion_status", "=", ""],
+            ["Visit Customer", "conversion_status", "is", "not set"],
+        ],
         fields=["name", "customer_name", "contact_person", "mobile_no", "email", "address"],
         order_by="creation desc",
     )
