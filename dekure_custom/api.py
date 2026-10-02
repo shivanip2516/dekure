@@ -359,11 +359,9 @@ def _reconcile_regularized_attendance(checkin):
     attendance_values = _calculate_attendance_from_shift_logs(shift, logs, attendance_date, checkin.employee)
 
     if existing_attendance:
-        _validate_attendance_can_be_rebuilt(existing_attendance, logs)
-        if _attendance_already_matches(existing_attendance, logs, attendance_values):
-            return
-        existing_attendance.cancel()
-        frappe.delete_doc("Attendance", existing_attendance.name, force=True, ignore_permissions=True)
+        _validate_attendance_can_be_overridden(existing_attendance, logs)
+        _override_existing_attendance(existing_attendance, logs, attendance_values)
+        return
 
     from hrms.hr.doctype.employee_checkin.employee_checkin import mark_attendance_and_link_log
 
@@ -408,8 +406,7 @@ def _get_regularization_shift_logs(checkin, existing_attendance=None):
     params = {
         "employee": checkin.employee,
         "shift": checkin.shift,
-        "shift_actual_start": checkin.shift_actual_start,
-        "shift_actual_end": checkin.shift_actual_end,
+        "attendance_date": getdate(checkin.shift_start or checkin.time),
     }
     if existing_attendance:
         attendance_filter = f"({attendance_filter} or attendance = %(attendance)s)"
@@ -424,8 +421,7 @@ def _get_regularization_shift_logs(checkin, existing_attendance=None):
         from `tabEmployee Checkin`
         where employee = %(employee)s
             and shift = %(shift)s
-            and shift_actual_start = %(shift_actual_start)s
-            and shift_actual_end = %(shift_actual_end)s
+            and date(shift_start) = %(attendance_date)s
             and ({attendance_filter})
         order by time asc
         """,
@@ -434,10 +430,10 @@ def _get_regularization_shift_logs(checkin, existing_attendance=None):
     )
 
 
-def _validate_attendance_can_be_rebuilt(attendance, logs):
+def _validate_attendance_can_be_overridden(attendance, logs):
     if attendance.docstatus != 1:
         frappe.throw(
-            _("Attendance {0} is not submitted and cannot be automatically rebuilt.").format(
+            _("Attendance {0} is not submitted and cannot be automatically overridden.").format(
                 attendance.name
             )
         )
@@ -457,6 +453,61 @@ def _validate_attendance_can_be_rebuilt(attendance, logs):
                 attendance.name
             )
         )
+
+
+def _override_existing_attendance(attendance, logs, attendance_values):
+    if _attendance_already_matches(attendance, logs, attendance_values):
+        return
+
+    attendance_status, attendance_date, working_hours, late_entry, early_exit, in_time, out_time = attendance_values
+    values = {
+        "status": attendance_status,
+        "working_hours": working_hours,
+        "in_time": in_time,
+        "out_time": out_time,
+        "late_entry": late_entry,
+        "early_exit": early_exit,
+        "shift": logs[0].shift,
+    }
+    updates = {
+        field: value
+        for field, value in values.items()
+        if not _attendance_field_matches(attendance, field, value)
+    }
+    if updates:
+        frappe.db.set_value("Attendance", attendance.name, updates, update_modified=True)
+
+    unlinked_log_names = [log.name for log in logs if log.attendance != attendance.name]
+    if unlinked_log_names:
+        frappe.db.set_value(
+            "Employee Checkin",
+            {"name": ["in", unlinked_log_names]},
+            "attendance",
+            attendance.name,
+            update_modified=True,
+        )
+        for log in logs:
+            if log.name in unlinked_log_names:
+                log.attendance = attendance.name
+    attendance.status = attendance_status
+    attendance.attendance_date = attendance_date
+    attendance.working_hours = working_hours
+    attendance.in_time = in_time
+    attendance.out_time = out_time
+    attendance.late_entry = late_entry
+    attendance.early_exit = early_exit
+    attendance.shift = logs[0].shift
+
+
+def _attendance_field_matches(attendance, field, value):
+    current_value = attendance.get(field)
+    if field in ("in_time", "out_time"):
+        return (get_datetime(current_value) if current_value else None) == value
+    if field == "working_hours":
+        return flt(current_value) == flt(value)
+    if field in ("late_entry", "early_exit"):
+        return bool(current_value) == bool(value)
+    return (current_value or "") == (value or "")
 
 
 def _has_submitted_salary_slip(employee, attendance_date):
