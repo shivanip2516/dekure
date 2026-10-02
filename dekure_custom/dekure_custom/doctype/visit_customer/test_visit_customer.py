@@ -4,6 +4,9 @@
 import unittest
 from unittest.mock import patch
 
+import frappe
+
+from dekure_custom import api
 from frappe.model.naming import NamingSeries, parse_naming_series
 from dekure_custom.dekure_custom.doctype.visit_customer.visit_customer import VisitCustomer
 
@@ -47,9 +50,23 @@ class TestVisitCustomer(unittest.TestCase):
 			doc3.autoname()
 			self.assertEqual(doc3.name, "VC-2026-00003")
 
+	def test_get_visit_customers_filters_out_converted_records(self):
+		with patch("dekure_custom.api.frappe.get_all", return_value=[]) as get_all:
+			api.get_visit_customers("ABC")
+
+		_, kwargs = get_all.call_args
+		self.assertEqual(kwargs["filters"], {"customer_name": ["like", "%ABC%"]})
+		self.assertEqual(
+			kwargs["or_filters"],
+			[
+				["Visit Customer", "conversion_status", "=", "Not Converted Yet"],
+				["Visit Customer", "conversion_status", "=", ""],
+				["Visit Customer", "conversion_status", "is", "not set"],
+			],
+		)
+
 
 if __name__ == "__main__":
-	import frappe
 	frappe.local.valid_columns = {}
 	frappe.local.flags = frappe._dict()
 	frappe.get_system_settings = lambda x: "Asia/Kolkata"

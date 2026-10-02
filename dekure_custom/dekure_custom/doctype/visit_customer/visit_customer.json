@@ -8,6 +8,7 @@
     "engine": "InnoDB",
     "field_order": [
         "customer_name",
+        "conversion_status",
         "contact_person",
         "mobile_no",
         "email",
@@ -22,6 +23,14 @@
             "in_list_view": 1,
             "label": "Customer Name",
             "reqd": 1
+        },
+        {
+            "default": "Not Converted Yet",
+            "fieldname": "conversion_status",
+            "fieldtype": "Select",
+            "in_list_view": 1,
+            "label": "Conversion Status",
+            "options": "Not Converted Yet\nConverted"
         },
         {
             "fieldname": "contact_person",
