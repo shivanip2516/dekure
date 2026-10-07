@@ -49,42 +49,6 @@
     },
     {
         "doctype": "Custom Field",
-        "name": "Item-spare_part",
-        "dt": "Item",
-        "fieldname": "spare_part",
-        "fieldtype": "Link",
-        "label": "Spare Part",
-        "options": "Spare Part",
-        "insert_after": "item_group",
-        "in_list_view": 0,
-        "reqd": 0,
-        "read_only": 0
-    },
-    {
-        "doctype": "Custom Field",
-        "name": "Item-services",
-        "dt": "Item",
-        "fieldname": "services",
-        "fieldtype": "Link",
-        "label": "Service Type",
-        "options": "Services",
-        "insert_after": "spare_part",
-        "in_list_view": 0,
-        "reqd": 0,
-        "read_only": 0
-    },
-    {
-        "doctype": "Custom Field",
-        "dt": "Item",
-        "name": "Item-item_abbreviation",
-        "fieldname": "item_abbreviation",
-        "fieldtype": "Data",
-        "label": "Item Abbreviation",
-        "insert_after": "item_name",
-        "unique": 1
-    },
-    {
-        "doctype": "Custom Field",
         "dt": "Brand",
         "name": "Brand-b_abbreviation",
         "fieldname": "b_abbreviation",
@@ -92,42 +56,6 @@
         "label": "Brand Abbreviation",
         "insert_after": "brand",
         "unique": 1
-    },
-    {
-        "doctype": "Custom Field",
-        "dt": "Item Attribute",
-        "name": "Item Attribute-use_for_item_code",
-        "fieldname": "use_for_item_code",
-        "fieldtype": "Check",
-        "label": "Use for Item Code",
-        "insert_after": "disabled",
-        "default": "1"
-    },
-    {
-        "doctype": "Custom Field",
-        "dt": "Item Attribute Value",
-        "name": "Item Attribute Value-spare_part",
-        "fieldname": "spare_part",
-        "fieldtype": "Link",
-        "label": "Spare Part",
-        "options": "Spare Part",
-        "insert_after": "abbr",
-        "in_list_view": 0,
-        "reqd": 0,
-        "read_only": 0
-    },
-    {
-        "doctype": "Custom Field",
-        "dt": "Item Variant Attribute",
-        "name": "Item Variant Attribute-item_attribute_value",
-        "fieldname": "item_attribute_value",
-        "fieldtype": "Link",
-        "label": "Item Attribute Value Row",
-        "options": "Item Attribute Value",
-        "insert_after": "attribute_value",
-        "hidden": 1,
-        "read_only": 1,
-        "reqd": 0
     },
     {
         "doctype": "Custom Field",

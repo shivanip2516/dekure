@@ -8,8 +8,7 @@ app_license = "mit"
 fixtures = [
     {"dt": "Custom Field", "filters": [["module", "=", "Dekure Custom"]]},
     {"dt": "Custom Field", "filters": [["dt", "in", ["Quotation", "Delivery Note", "Sales Invoice", "Sales Order"]]]},
-    {"dt": "Custom Field", "filters": [["name", "in", ["Item-spare_part", "Item-services", "Item-item_abbreviation", "Brand-b_abbreviation", "Item Attribute-use_for_item_code", "Item Attribute Value-spare_part", "Item Variant Attribute-item_attribute_value"]]]},
-    {"dt": "Property Setter", "filters": [["name", "in", ["Item-item_code-reqd", "Item-item_code-read_only"]]]},
+    {"dt": "Custom Field", "filters": [["name", "in", ["Brand-b_abbreviation"]]]},
     {
         "dt": "Custom Field",
         "filters": [
@@ -35,12 +34,6 @@ fixtures = [
  
 
 doc_events = {
-    "Item": {
-        "validate": "dekure_custom.overrides.item.validate_item",
-        "before_naming": "dekure_custom.overrides.item.before_insert_item",
-        "before_insert": "dekure_custom.overrides.item.before_insert_item",
-        "on_update": "dekure_custom.overrides.item.on_update_item"
-    },
     "Employee Checkin": {
         "validate": "dekure_custom.api.validate_checkin"
     }
@@ -56,14 +49,9 @@ doctype_list_js = {
 
 override_whitelisted_methods = {
     "frappe.desk.query_report.run": "dekure_custom.overrides.stock_ledger_report.run",
-    "erpnext.controllers.item_variant.create_variant": "dekure_custom.overrides.item_variant.create_variant",
-    "erpnext.controllers.item_variant.create_variant_doc_for_quick_entry": "dekure_custom.overrides.item_variant.create_variant_doc_for_quick_entry",
-    "erpnext.controllers.item_variant.enqueue_multiple_variant_creation": "dekure_custom.overrides.item_variant.enqueue_multiple_variant_creation",
 }
 
 override_doctype_class = {
-    "Item": "dekure_custom.overrides.item_doctype.DekureItem",
-    "Item Attribute": "dekure_custom.overrides.item_attribute.DekureItemAttribute",
 }
 
 # Apps
@@ -104,7 +92,6 @@ override_doctype_class = {
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-doctype_js = {"Item": "public/js/item.js"}
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
