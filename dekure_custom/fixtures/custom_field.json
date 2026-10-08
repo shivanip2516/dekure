@@ -69,6 +69,29 @@
     },
     {
         "doctype": "Custom Field",
+        "name": "Expense Claim-custom_pwa_expense_claim",
+        "dt": "Expense Claim",
+        "fieldname": "custom_pwa_expense_claim",
+        "fieldtype": "Check",
+        "label": "PWA Expense Claim",
+        "insert_after": "posting_date",
+        "hidden": 1,
+        "default": "0"
+    },
+    {
+        "doctype": "Custom Field",
+        "name": "Expense Claim Detail-custom_attachment",
+        "dt": "Expense Claim Detail",
+        "fieldname": "custom_attachment",
+        "fieldtype": "Attach",
+        "label": "Attachment",
+        "insert_after": "amount",
+        "in_list_view": 1,
+        "reqd": 0,
+        "read_only": 0
+    },
+    {
+        "doctype": "Custom Field",
         "name": "Employee Checkin-custom_selfie",
         "dt": "Employee Checkin",
         "fieldname": "custom_selfie",

@@ -6,7 +6,7 @@ import requests
 import frappe
 from frappe import _
 from frappe.query_builder import Order
-from frappe.utils import flt, get_datetime, get_url, getdate, get_time, now_datetime, nowdate
+from frappe.utils import add_days, flt, get_datetime, get_url, getdate, get_time, now_datetime, nowdate
 
 
 MISSED_CHECKIN = "Missed Check-in"
@@ -22,6 +22,122 @@ VISIT_REVERSE_GEOCODE_URL = "https://nominatim.openstreetmap.org/reverse"
 VISIT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 VISIT_REVERSE_GEOCODE_TIMEOUT = 3
 VISIT_NEARBY_ADDRESS_RADIUS_METERS = 800
+PWA_EXPENSE_DATE_WINDOW_DAYS = 3
+PWA_EXPENSE_ATTACHMENT_FIELD = "custom_attachment"
+PWA_EXPENSE_MARKER_FIELD = "custom_pwa_expense_claim"
+
+
+@frappe.whitelist()
+def get_pwa_doctype_fields(doctype: str) -> list[dict]:
+    """Return HRMS PWA field metadata with Dekure Expense Claim extensions."""
+    from hrms.api import SUPPORTED_FIELD_TYPES
+
+    fields = []
+    supported_fieldtypes = set(SUPPORTED_FIELD_TYPES)
+
+    if doctype == "Expense Claim Detail":
+        supported_fieldtypes.add("Attach")
+
+    for field in frappe.get_meta(doctype).fields:
+        if field.fieldname == "amended_from":
+            continue
+
+        if field.fieldtype not in supported_fieldtypes:
+            continue
+
+        field_dict = field.as_dict()
+        if doctype == "Expense Claim Detail" and field.fieldname == "expense_date":
+            field_dict.update(_get_pwa_expense_date_limits())
+
+        fields.append(field_dict)
+
+    return fields
+
+
+@frappe.whitelist()
+def upload_pwa_expense_row_attachment(content: str, filename: str):
+    """Upload a private file for a PWA expense row before the parent claim exists."""
+    _current_employee()
+    file_doc = frappe.get_doc(
+        {
+            "doctype": "File",
+            "file_name": filename,
+            "content": content,
+            "decode": True,
+            "folder": "Home",
+            "is_private": 1,
+        }
+    )
+    file_doc.insert(ignore_permissions=True)
+
+    return {
+        "name": file_doc.name,
+        "file_name": file_doc.file_name,
+        "file_url": file_doc.file_url,
+        "is_private": file_doc.is_private,
+    }
+
+
+def validate_pwa_expense_claim_dates(doc, method=None):
+    if not doc.get(PWA_EXPENSE_MARKER_FIELD):
+        return
+
+    min_date = _get_pwa_min_expense_date()
+    today = getdate(nowdate())
+
+    for index, row in enumerate(doc.get("expenses") or [], start=1):
+        if not row.get("expense_date"):
+            continue
+
+        expense_date = getdate(row.get("expense_date"))
+        if expense_date < min_date or expense_date > today:
+            frappe.throw(
+                _("Row {0}: Expense Date can only be within the last 3 days.").format(index)
+            )
+
+
+def link_pwa_expense_row_attachments(doc, method=None):
+    if not doc.get(PWA_EXPENSE_MARKER_FIELD):
+        return
+
+    for row in doc.get("expenses") or []:
+        attachment = row.get(PWA_EXPENSE_ATTACHMENT_FIELD)
+        if not attachment or not row.get("name"):
+            continue
+
+        file_name = frappe.db.get_value("File", {"file_url": attachment}, "name")
+        if not file_name:
+            continue
+
+        attached_to_doctype, attached_to_name = frappe.db.get_value(
+            "File",
+            file_name,
+            ["attached_to_doctype", "attached_to_name"],
+        )
+        if attached_to_doctype and attached_to_name and attached_to_name != row.name:
+            continue
+
+        frappe.db.set_value(
+            "File",
+            file_name,
+            {
+                "attached_to_doctype": "Expense Claim Detail",
+                "attached_to_name": row.name,
+                "attached_to_field": PWA_EXPENSE_ATTACHMENT_FIELD,
+            },
+            update_modified=False,
+        )
+
+
+def _get_pwa_expense_date_limits():
+    return {
+        "minDate": _get_pwa_min_expense_date().isoformat(),
+        "maxDate": getdate(nowdate()).isoformat(),
+    }
+
+
+def _get_pwa_min_expense_date():
+    return add_days(getdate(nowdate()), -(PWA_EXPENSE_DATE_WINDOW_DAYS - 1))
 
 
 def _safe_share(doctype, name, user, read=1, write=0, submit=0):

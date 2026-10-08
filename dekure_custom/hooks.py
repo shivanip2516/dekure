@@ -8,7 +8,7 @@ app_license = "mit"
 fixtures = [
     {"dt": "Custom Field", "filters": [["module", "=", "Dekure Custom"]]},
     {"dt": "Custom Field", "filters": [["dt", "in", ["Quotation", "Delivery Note", "Sales Invoice", "Sales Order"]]]},
-    {"dt": "Custom Field", "filters": [["name", "in", ["Brand-b_abbreviation"]]]},
+    {"dt": "Custom Field", "filters": [["name", "in", ["Brand-b_abbreviation", "Expense Claim-custom_pwa_expense_claim", "Expense Claim Detail-custom_attachment"]]]},
     {
         "dt": "Custom Field",
         "filters": [
@@ -34,6 +34,11 @@ fixtures = [
  
 
 doc_events = {
+    "Expense Claim": {
+        "validate": "dekure_custom.api.validate_pwa_expense_claim_dates",
+        "after_insert": "dekure_custom.api.link_pwa_expense_row_attachments",
+        "on_update": "dekure_custom.api.link_pwa_expense_row_attachments",
+    },
     "Employee Checkin": {
         "validate": "dekure_custom.api.validate_checkin"
     }
@@ -49,6 +54,7 @@ doctype_list_js = {
 
 override_whitelisted_methods = {
     "frappe.desk.query_report.run": "dekure_custom.overrides.stock_ledger_report.run",
+    "hrms.api.get_doctype_fields": "dekure_custom.api.get_pwa_doctype_fields",
 }
 
 override_doctype_class = {
