@@ -345,8 +345,6 @@ def review_missed_punch_request(name, action, rejection_reason=None):
             )
             checkin.flags.attendance_regularization_request = request.name
             checkin.insert(ignore_permissions=True)
-        elif checkin.skip_auto_attendance:
-            frappe.throw(_("The matching Employee Checkin is marked to Skip Auto Attendance."))
 
         if request.request_type == MISSED_CHECKOUT:
             _reconcile_regularized_attendance(checkin)
@@ -450,8 +448,6 @@ def _reconcile_regularized_attendance(checkin):
         frappe.throw(
             _("Requested check-out time {0} is outside the configured shift window.").format(checkin.time)
         )
-    if checkin.skip_auto_attendance:
-        frappe.throw(_("Employee Checkin {0} is marked to Skip Auto Attendance.").format(checkin.name))
 
     shift = frappe.get_doc("Shift Type", checkin.shift)
     if not shift.enable_auto_attendance:
@@ -464,8 +460,6 @@ def _reconcile_regularized_attendance(checkin):
         return
 
     for log in logs:
-        if log.skip_auto_attendance:
-            frappe.throw(_("Employee Checkin {0} is marked to Skip Auto Attendance.").format(log.name))
         if log.offshift or log.shift != checkin.shift:
             frappe.throw(_("Employee Checkin {0} is not linked to shift {1}.").format(log.name, checkin.shift))
 
@@ -507,8 +501,13 @@ def _get_existing_attendance(employee, attendance_date, shift):
         where employee = %s
             and attendance_date = %s
             and docstatus < 2
-            and (shift = %s or shift is null or shift = '')
-        order by modified desc
+        order by
+            case
+                when shift = %s then 0
+                when shift is null or shift = '' then 1
+                else 2
+            end,
+            modified desc
         limit 1
         for update
         """,
@@ -533,7 +532,7 @@ def _get_regularization_shift_logs(checkin, existing_attendance=None):
         select
             name, employee, log_type, time, shift, shift_start, shift_end,
             shift_actual_start, shift_actual_end, device_id, overtime_type,
-            skip_auto_attendance, offshift, attendance
+            offshift, attendance
         from `tabEmployee Checkin`
         where employee = %(employee)s
             and shift = %(shift)s
@@ -547,12 +546,8 @@ def _get_regularization_shift_logs(checkin, existing_attendance=None):
 
 
 def _validate_attendance_can_be_overridden(attendance, logs):
-    if attendance.docstatus != 1:
-        frappe.throw(
-            _("Attendance {0} is not submitted and cannot be automatically overridden.").format(
-                attendance.name
-            )
-        )
+    if attendance.docstatus == 2:
+        frappe.throw(_("Attendance {0} is cancelled and was not changed.").format(attendance.name))
     if attendance.status == "On Leave" or attendance.leave_application or attendance.leave_type:
         frappe.throw(_("Attendance {0} is linked to leave and was not changed.").format(attendance.name))
     if _has_submitted_salary_slip(attendance.employee, attendance.attendance_date):
@@ -563,12 +558,6 @@ def _validate_attendance_can_be_overridden(attendance, logs):
         )
     if attendance.status not in ("Present", "Half Day", "Absent"):
         frappe.throw(_("Attendance {0} has a protected status and was not changed.").format(attendance.name))
-    if not _attendance_has_auto_attendance_evidence(attendance, logs):
-        frappe.throw(
-            _("Attendance {0} does not appear to be auto-generated, so it was not changed.").format(
-                attendance.name
-            )
-        )
 
 
 def _override_existing_attendance(attendance, logs, attendance_values):
@@ -635,26 +624,6 @@ def _has_submitted_salary_slip(employee, attendance_date):
             "start_date": ["<=", attendance_date],
             "end_date": [">=", attendance_date],
         },
-    )
-
-
-def _attendance_has_auto_attendance_evidence(attendance, logs):
-    if any(log.attendance == attendance.name for log in logs):
-        return True
-    auto_attendance_comments = (
-        "Employee was marked Absent due to missing Employee Checkins.",
-        "Employee was marked Absent for not meeting the working hours threshold.",
-    )
-    return bool(
-        frappe.get_all(
-            "Comment",
-            filters={
-                "reference_doctype": "Attendance",
-                "reference_name": attendance.name,
-                "content": ["in", auto_attendance_comments],
-            },
-            limit=1,
-        )
     )
 
 
