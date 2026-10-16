@@ -6,7 +6,17 @@ import requests
 import frappe
 from frappe import _
 from frappe.query_builder import Order
-from frappe.utils import add_days, flt, get_datetime, get_url, getdate, get_time, now_datetime, nowdate
+from frappe.utils import (
+    add_days,
+    cint,
+    flt,
+    get_datetime,
+    get_time,
+    get_url,
+    getdate,
+    now_datetime,
+    nowdate,
+)
 
 
 MISSED_CHECKIN = "Missed Check-in"
@@ -22,6 +32,7 @@ VISIT_REVERSE_GEOCODE_URL = "https://nominatim.openstreetmap.org/reverse"
 VISIT_OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 VISIT_REVERSE_GEOCODE_TIMEOUT = 3
 VISIT_NEARBY_ADDRESS_RADIUS_METERS = 800
+VISIT_MAX_PAGE_LENGTH = 100
 PWA_EXPENSE_DATE_WINDOW_DAYS = 3
 PWA_EXPENSE_ATTACHMENT_FIELD = "custom_attachment"
 PWA_EXPENSE_MARKER_FIELD = "custom_pwa_expense_claim"
@@ -426,6 +437,15 @@ def _current_employee():
     if not employee:
         frappe.throw(_("No employee is linked to your login"), frappe.PermissionError)
     return employee
+
+
+def _current_user_employees():
+    employees = frappe.get_all(
+        "Employee", filters={"user_id": frappe.session.user}, pluck="name"
+    )
+    if not employees:
+        frappe.throw(_("No employee is linked to your login"), frappe.PermissionError)
+    return employees
 
 
 def _lock_employee(employee):
@@ -865,7 +885,7 @@ def _get_department_shift_approver(department):
 
 @frappe.whitelist()
 def get_today_visits():
-    """Return only the logged-in employee's visits scheduled for today."""
+    """Return only the logged-in user's visits scheduled for today."""
     _ensure_visit_doctype()
     employee = _current_employee()
     return frappe.get_all(
@@ -874,6 +894,53 @@ def get_today_visits():
         fields=_visit_fields(),
         order_by="creation asc",
     )
+
+
+@frappe.whitelist()
+def get_visit_history(start=0, page_length=50, search=None, status=None):
+    """Return a filtered history page for the user responsible for the visits."""
+    _ensure_visit_doctype()
+    employees = _current_user_employees()
+    start = max(cint(start), 0)
+    page_length = min(max(cint(page_length), 1), VISIT_MAX_PAGE_LENGTH)
+    filters = {"employee": ["in", employees]}
+    if status in (VISIT_PLANNED, VISIT_IN_PROGRESS, VISIT_COMPLETED, VISIT_CANCELLED):
+        filters["status"] = status
+
+    search = (search or "").strip()
+    or_filters = None
+    if search:
+        pattern = f"%{search}%"
+        or_filters = [
+            [VISIT_DOCTYPE, "name", "like", pattern],
+            [VISIT_DOCTYPE, "customer_name", "like", pattern],
+            [VISIT_DOCTYPE, "customer", "like", pattern],
+            [VISIT_DOCTYPE, "new_customer", "like", pattern],
+        ]
+
+    return frappe.get_list(
+        VISIT_DOCTYPE,
+        filters=filters,
+        or_filters=or_filters,
+        fields=_visit_fields(),
+        order_by="visit_date desc, creation desc",
+        start=start,
+        page_length=page_length,
+    )
+
+
+@frappe.whitelist()
+def get_visit_history_detail(name):
+    _ensure_visit_doctype()
+    visit = _get_user_visit(name)
+    details = {field: visit.get(field) for field in _visit_fields()}
+    details["attachments"] = frappe.get_all(
+        "File",
+        filters={"attached_to_doctype": VISIT_DOCTYPE, "attached_to_name": visit.name},
+        fields=["name", "file_name", "file_url", "is_private"],
+        order_by="creation asc",
+    )
+    return details
 
 
 @frappe.whitelist()
@@ -1074,6 +1141,15 @@ def _get_employee_visit(name):
         frappe.throw(_("Visit is required"))
     visit = frappe.get_doc(VISIT_DOCTYPE, name)
     if visit.employee != _current_employee():
+        frappe.throw(_("You are not permitted to access this visit."), frappe.PermissionError)
+    return visit
+
+
+def _get_user_visit(name):
+    if not name:
+        frappe.throw(_("Visit is required"))
+    visit = frappe.get_doc(VISIT_DOCTYPE, name)
+    if visit.employee not in _current_user_employees():
         frappe.throw(_("You are not permitted to access this visit."), frappe.PermissionError)
     return visit
 
