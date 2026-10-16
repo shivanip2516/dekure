@@ -28,6 +28,34 @@ PWA_EXPENSE_MARKER_FIELD = "custom_pwa_expense_claim"
 
 
 @frappe.whitelist()
+def get_expense_claims_with_dates(employee, approver_id=None, for_approval=False, limit=None):
+    """Extend the standard PWA claim response with batched child expense dates."""
+    from hrms.api import get_expense_claims
+
+    claims = get_expense_claims(employee, approver_id, for_approval, limit)
+    claim_names = [claim.name for claim in claims]
+    if not claim_names:
+        return claims
+
+    expense_dates = frappe.get_all(
+        "Expense Claim Detail",
+        filters={"parent": ["in", claim_names], "expense_date": ["is", "set"]},
+        fields=["parent", "expense_date"],
+        order_by="expense_date asc",
+    )
+    dates_by_claim = {}
+    for row in expense_dates:
+        dates_by_claim.setdefault(row.parent, []).append(row.expense_date)
+
+    for claim in claims:
+        dates = dates_by_claim.get(claim.name, [])
+        claim["expense_date_from"] = dates[0] if dates else None
+        claim["expense_date_to"] = dates[-1] if dates else None
+
+    return claims
+
+
+@frappe.whitelist()
 def get_pwa_doctype_fields(doctype: str) -> list[dict]:
     """Return HRMS PWA field metadata with Dekure Expense Claim extensions."""
     from hrms.api import SUPPORTED_FIELD_TYPES
@@ -79,14 +107,19 @@ def upload_pwa_expense_row_attachment(content: str, filename: str):
 
 
 def validate_pwa_expense_claim_dates(doc, method=None):
-    if not doc.get(PWA_EXPENSE_MARKER_FIELD):
-        return
-
     min_date = _get_pwa_min_expense_date()
     today = getdate(nowdate())
+    previous = None if doc.is_new() else doc.get_doc_before_save()
+    previous_rows = {
+        row.name: row for row in ((previous.get("expenses") or []) if previous else [])
+    }
 
     for index, row in enumerate(doc.get("expenses") or [], start=1):
         if not row.get("expense_date"):
+            continue
+
+        previous_row = previous_rows.get(row.name)
+        if previous_row and getdate(previous_row.expense_date) == getdate(row.expense_date):
             continue
 
         expense_date = getdate(row.get("expense_date"))
@@ -190,6 +223,7 @@ def create_checkin(log_type, selfie, latitude=None, longitude=None):
         "log_type": log_type,
         "time": now_datetime(),
         "custom_selfie": photo.file_url,
+        "custom_checkin_source": "PWA Selfie App",
         "latitude": latitude,
         "longitude": longitude
     })
@@ -209,21 +243,22 @@ def get_missed_punch_status():
 
     checkout_request_date = previous_open_checkout or today
     today_checkin = _first_log(today_logs, "IN")
-    today_checkout = _first_log(today_logs, "OUT")
+    today_checkout = next((log for log in reversed(today_logs) if log.log_type == "OUT"), None)
+    last_today_log = today_logs[-1] if today_logs else None
     pending_missed_checkout = (
         _has_pending_request(employee, previous_open_checkout, MISSED_CHECKOUT)
         if previous_open_checkout
         else None
     )
 
-    return {
+    status = {
         "employee": employee,
         "attendance_date": today,
         "today_checkin_time": today_checkin.time if today_checkin else None,
         "today_checkout_time": today_checkout.time if today_checkout else None,
         "attendance_completed": bool(today_checkin and today_checkout),
-        "can_checkin": not unresolved_open_checkout and not today_checkin,
-        "can_checkout": bool(today_checkin and not today_checkout),
+        "can_checkin": not unresolved_open_checkout and (not last_today_log or last_today_log.log_type == "OUT"),
+        "can_checkout": bool(last_today_log and last_today_log.log_type == "IN"),
         "can_request_checkin": not unresolved_open_checkout
         and not _has_log(today_logs, "IN")
         and not _has_pending_request(employee, today, MISSED_CHECKIN),
@@ -240,6 +275,14 @@ def get_missed_punch_status():
         if previous_open_checkout
         else None,
     }
+    if today_checkout:
+        from dekure_custom.attendance import get_checkout_attendance_status
+
+        checkout = frappe.get_doc("Employee Checkin", today_checkout.name)
+        status.update(get_checkout_attendance_status(checkout))
+    else:
+        status["attendance_processing_status"] = None
+    return status
 
 
 @frappe.whitelist()
@@ -702,6 +745,25 @@ def _validate_normal_punch(employee, log_type, attendance_date, exclude_checkin=
             frappe.throw(_("A check-out already exists for this attendance date."))
         if _has_pending_request(employee, attendance_date, MISSED_CHECKOUT, exclude_request):
             frappe.throw(_("A missed check-out request for this attendance date is awaiting approval."))
+
+
+def _validate_pwa_punch_sequence(doc, exclude_checkin=None):
+    filters = {
+        "employee": doc.employee,
+        "shift": doc.shift,
+        "shift_start": doc.shift_start,
+        "custom_checkin_source": "PWA Selfie App",
+    }
+    if exclude_checkin:
+        filters["name"] = ["!=", exclude_checkin]
+    logs = frappe.get_all(
+        "Employee Checkin", filters=filters, fields=["name", "log_type", "time"], order_by="time asc"
+    )
+    last_log = logs[-1] if logs else None
+    if doc.log_type == "IN" and last_log and last_log.log_type != "OUT":
+        frappe.throw(_("Check out before checking in again."))
+    if doc.log_type == "OUT" and (not last_log or last_log.log_type != "IN"):
+        frappe.throw(_("Check in before checking out."))
 
 
 def _validate_missed_punch(employee, attendance_date, request_type, exclude_request=None):
@@ -1332,6 +1394,9 @@ def validate_checkin(doc, method):
 
     attendance_date = getdate(doc.time or now_datetime())
     _lock_employee(doc.employee)
+    if doc.get("custom_checkin_source") == "PWA Selfie App" and doc.shift and doc.shift_start:
+        _validate_pwa_punch_sequence(doc, exclude_checkin=doc.name if not doc.is_new() else None)
+        return
     _validate_normal_punch(
         doc.employee,
         doc.log_type,
