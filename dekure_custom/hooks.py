@@ -40,7 +40,8 @@ doc_events = {
         "on_update": "dekure_custom.api.link_pwa_expense_row_attachments",
     },
     "Employee Checkin": {
-        "validate": "dekure_custom.api.validate_checkin"
+        "validate": "dekure_custom.api.validate_checkin",
+        "after_insert": "dekure_custom.attendance.enqueue_pwa_checkout_attendance",
     }
 }
 
@@ -55,6 +56,7 @@ doctype_list_js = {
 override_whitelisted_methods = {
     "frappe.desk.query_report.run": "dekure_custom.overrides.stock_ledger_report.run",
     "hrms.api.get_doctype_fields": "dekure_custom.api.get_pwa_doctype_fields",
+    "hrms.api.get_expense_claims": "dekure_custom.api.get_expense_claims_with_dates",
 }
 
 override_doctype_class = {
