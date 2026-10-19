@@ -140,6 +140,33 @@ def validate_pwa_expense_claim_dates(doc, method=None):
             )
 
 
+def prevent_pwa_employee_expense_claim_submission(doc, method=None):
+    """Keep employee-owned PWA claims in Draft while allowing Desk approvers."""
+    from dekure_custom.pwa_submission import prevent_employee_pwa_submission
+
+    prevent_employee_pwa_submission(doc)
+
+    is_pwa_claim = cint(doc.get(PWA_EXPENSE_MARKER_FIELD))
+    if doc.get("name") and not doc.is_new():
+        is_pwa_claim = is_pwa_claim or cint(
+            frappe.db.get_value("Expense Claim", doc.name, PWA_EXPENSE_MARKER_FIELD)
+        )
+
+    if not is_pwa_claim:
+        return
+
+    employee_names = frappe.get_all(
+        "Employee",
+        filters={"user_id": frappe.session.user},
+        pluck="name",
+    )
+    if doc.get("employee") in employee_names:
+        frappe.throw(
+            _("Expense Claims created in the HRMS app can only be saved as Draft."),
+            frappe.PermissionError,
+        )
+
+
 def link_pwa_expense_row_attachments(doc, method=None):
     if not doc.get(PWA_EXPENSE_MARKER_FIELD):
         return

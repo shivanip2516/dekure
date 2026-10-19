@@ -4,7 +4,11 @@ from unittest.mock import patch
 import frappe
 from frappe.tests import UnitTestCase
 
-from dekure_custom.api import get_expense_claims_with_dates, validate_pwa_expense_claim_dates
+from dekure_custom.api import (
+	get_expense_claims_with_dates,
+	prevent_pwa_employee_expense_claim_submission,
+	validate_pwa_expense_claim_dates,
+)
 
 
 def _expense_row(name, expense_date):
@@ -18,7 +22,60 @@ def _expense_claim(rows, previous=None):
 	return doc
 
 
+def _submitting_claim(employee="EMP-1", is_pwa_claim=1, is_new=False):
+	doc = frappe._dict(
+		name="EXP-1",
+		employee=employee,
+		custom_pwa_expense_claim=is_pwa_claim,
+	)
+	doc.is_new = lambda: is_new
+	return doc
+
+
 class TestPWAExpenseClaimDates(UnitTestCase):
+	@patch("dekure_custom.api.frappe.get_all", return_value=["EMP-1"])
+	@patch("dekure_custom.api.frappe.db.get_value", return_value=1)
+	def test_employee_cannot_submit_own_pwa_claim(self, get_value, get_all):
+		with self.assertRaisesRegex(
+			frappe.PermissionError, "can only be saved as Draft"
+		):
+			prevent_pwa_employee_expense_claim_submission(_submitting_claim())
+		get_all.assert_called_once_with(
+			"Employee",
+			filters={"user_id": frappe.session.user},
+			pluck="name",
+		)
+
+	@patch("dekure_custom.api.frappe.get_all", return_value=["EMP-1"])
+	@patch("dekure_custom.api.frappe.db.get_value")
+	def test_employee_cannot_directly_submit_new_pwa_claim(self, get_value, get_all):
+		with self.assertRaises(frappe.PermissionError):
+			prevent_pwa_employee_expense_claim_submission(
+				_submitting_claim(is_new=True)
+			)
+		get_value.assert_not_called()
+
+	@patch("dekure_custom.api.frappe.get_all", return_value=["EMP-APPROVER"])
+	@patch("dekure_custom.api.frappe.db.get_value", return_value=1)
+	def test_approver_can_submit_another_employees_pwa_claim(self, get_value, get_all):
+		prevent_pwa_employee_expense_claim_submission(_submitting_claim())
+
+	@patch("dekure_custom.api.frappe.get_all", return_value=["EMP-1"])
+	@patch("dekure_custom.api.frappe.db.get_value", return_value=0)
+	def test_non_pwa_claim_submission_is_unchanged(self, get_value, get_all):
+		prevent_pwa_employee_expense_claim_submission(
+			_submitting_claim(is_pwa_claim=0)
+		)
+		get_all.assert_not_called()
+
+	@patch("dekure_custom.api.frappe.get_all", return_value=["EMP-1"])
+	@patch("dekure_custom.api.frappe.db.get_value", return_value=1)
+	def test_stored_pwa_marker_cannot_be_removed_during_submit(self, get_value, get_all):
+		with self.assertRaises(frappe.PermissionError):
+			prevent_pwa_employee_expense_claim_submission(
+				_submitting_claim(is_pwa_claim=0)
+			)
+
 	@patch("dekure_custom.api.nowdate", return_value="2026-10-14")
 	def test_new_claim_allows_today_yesterday_and_two_days_ago(self, nowdate):
 		for day in (14, 13, 12):

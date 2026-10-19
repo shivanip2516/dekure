@@ -8,7 +8,7 @@ app_license = "mit"
 fixtures = [
     {"dt": "Custom Field", "filters": [["module", "=", "Dekure Custom"]]},
     {"dt": "Custom Field", "filters": [["dt", "in", ["Quotation", "Delivery Note", "Sales Invoice", "Sales Order"]]]},
-    {"dt": "Custom Field", "filters": [["name", "in", ["Brand-b_abbreviation", "Expense Claim-custom_pwa_expense_claim", "Expense Claim Detail-custom_attachment"]]]},
+    {"dt": "Custom Field", "filters": [["name", "in", ["Brand-b_abbreviation", "Expense Claim-custom_pwa_expense_claim", "Expense Claim Detail-custom_attachment", "Compensatory Leave Request-custom_status", "Compensatory Leave Request-custom_leave_approver", "Compensatory Leave Request-custom_pwa_comp_off", "PWA Notification-custom_action_type", "PWA Notification-custom_resolved"]]]},
     {
         "dt": "Custom Field",
         "filters": [
@@ -34,19 +34,48 @@ fixtures = [
  
 
 doc_events = {
+    "*": {
+        "on_update": "dekure_custom.notifications.resolve_actionable_notifications",
+    },
     "Expense Claim": {
         "validate": "dekure_custom.api.validate_pwa_expense_claim_dates",
+        "before_submit": "dekure_custom.api.prevent_pwa_employee_expense_claim_submission",
         "after_insert": "dekure_custom.api.link_pwa_expense_row_attachments",
         "on_update": "dekure_custom.api.link_pwa_expense_row_attachments",
     },
     "Employee Checkin": {
         "validate": "dekure_custom.api.validate_checkin",
         "after_insert": "dekure_custom.attendance.enqueue_pwa_checkout_attendance",
-    }
+    },
+    "PWA Notification": {
+        "before_insert": "dekure_custom.notifications.classify_pwa_notification",
+    },
+    "Compensatory Leave Request": {
+        "validate": "dekure_custom.comp_off.prepare_pwa_comp_off",
+        "after_insert": "dekure_custom.comp_off.notify_pwa_comp_off_approver",
+        "on_update": "dekure_custom.comp_off.notify_pwa_comp_off_status",
+        "before_submit": "dekure_custom.comp_off.prevent_pwa_employee_comp_off_submission",
+    },
+    "Leave Application": {
+        "before_submit": "dekure_custom.pwa_submission.prevent_employee_pwa_submission",
+    },
+    "Employee Advance": {
+        "before_submit": "dekure_custom.pwa_submission.prevent_employee_pwa_submission",
+    },
+    "Attendance Request": {
+        "before_submit": "dekure_custom.pwa_submission.prevent_employee_pwa_submission",
+    },
+    "Shift Request": {
+        "before_submit": "dekure_custom.pwa_submission.prevent_employee_pwa_submission",
+    },
+    "Shift Assignment": {
+        "before_submit": "dekure_custom.pwa_submission.prevent_employee_pwa_submission",
+    },
 }
 
 doctype_js = {
     "Employee Checkin": "public/js/employee_checkin.js",
+    "Compensatory Leave Request": "public/js/compensatory_leave_request.js",
 }
 
 doctype_list_js = {
@@ -57,6 +86,7 @@ override_whitelisted_methods = {
     "frappe.desk.query_report.run": "dekure_custom.overrides.stock_ledger_report.run",
     "hrms.api.get_doctype_fields": "dekure_custom.api.get_pwa_doctype_fields",
     "hrms.api.get_expense_claims": "dekure_custom.api.get_expense_claims_with_dates",
+    "hrms.api.get_unread_notifications_count": "dekure_custom.notifications.get_active_unread_notifications_count",
 }
 
 override_doctype_class = {
