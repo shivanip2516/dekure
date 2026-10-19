@@ -48,8 +48,8 @@ class TestQuotationLeadStatus(unittest.TestCase):
 			update_lead_on_creation(self.doc)
 		self.get_doc.assert_not_called()
 
-	def test_hook_only_runs_on_insert(self):
+	def test_one_hook_covers_creation_and_existing_draft_saves(self):
 		self.assertEqual(
 			doc_events["Quotation"],
-			{"after_insert": "dekure_custom.events.quotation.update_lead_on_creation"},
+			{"on_update": "dekure_custom.events.quotation.update_lead_on_creation"},
 		)

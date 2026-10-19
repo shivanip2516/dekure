@@ -42,8 +42,9 @@ doc_events = {
         "before_submit": "dekure_custom.api.prevent_pwa_employee_expense_claim_submission",
         "after_insert": "dekure_custom.api.link_pwa_expense_row_attachments",
         "on_update": "dekure_custom.api.link_pwa_expense_row_attachments",
+    },
     "Quotation": {
-        "after_insert": "dekure_custom.events.quotation.update_lead_on_creation"
+        "on_update": "dekure_custom.events.quotation.update_lead_on_creation"
     },
     "Item": {
         "validate": "dekure_custom.overrides.item.validate_item",
@@ -79,7 +80,7 @@ doc_events = {
     "Shift Assignment": {
         "before_submit": "dekure_custom.pwa_submission.prevent_employee_pwa_submission",
     },
-}}
+}
 
 doctype_js = {
     "Employee Checkin": "public/js/employee_checkin.js",
@@ -102,7 +103,8 @@ override_doctype_class = {
 }
 
 extend_doctype_class = {
-    "Report": "dekure_custom.overrides.report.LeadNotesReportMixin"
+    "Report": "dekure_custom.overrides.report.LeadNotesReportMixin",
+    "Lead": "dekure_custom.overrides.lead.DraftQuotationStatusMixin",
 }
 
 # Apps

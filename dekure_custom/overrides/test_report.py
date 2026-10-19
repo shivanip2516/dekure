@@ -65,7 +65,7 @@ class TestLeadNotesReport(unittest.TestCase):
 			self.assertIs(report.execute_module({}), report.result)
 		fetch.assert_not_called()
 
-	def test_notes_are_grouped_with_two_bulk_queries(self):
+	def test_latest_note_is_selected_by_timestamp_with_two_bulk_queries(self):
 		meta = Mock()
 		meta.get_field.return_value.permlevel = 0
 		meta.get_permlevel_access.return_value = [0]
@@ -77,14 +77,14 @@ class TestLeadNotesReport(unittest.TestCase):
 			patch(
 				"dekure_custom.overrides.report.frappe.get_all",
 				return_value=[
-					frappe._dict(parent="LEAD-1", note="<p>First</p>"),
-					frappe._dict(parent="LEAD-1", note="<p>Second<br>line</p>"),
-					frappe._dict(parent="LEAD-1", note="<p><br></p>"),
+					frappe._dict(parent="LEAD-1", note="<p>Second<br>line</p>", added_on="2026-10-19 12:00:00", idx=1),
+					frappe._dict(parent="LEAD-1", note="<p>First</p>", added_on="2026-10-18 12:00:00", idx=3),
+					frappe._dict(parent="LEAD-1", note="<p><br></p>", creation="2026-10-17 12:00:00", idx=2),
 				],
 			) as notes,
 		):
 			result = get_lead_notes({"LEAD-1", "RESTRICTED"})
-		self.assertEqual(result, {"LEAD-1": "First\n\nSecond\nline"})
+		self.assertEqual(result, {"LEAD-1": "Second\nline"})
 		leads.assert_called_once()
 		notes.assert_called_once()
 		self.assertEqual(

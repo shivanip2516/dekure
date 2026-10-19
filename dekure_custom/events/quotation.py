@@ -3,7 +3,7 @@ from frappe import _
 
 
 def update_lead_on_creation(doc, method=None):
-	"""Count the first Draft save as a quotation without changing later lifecycle events."""
+	"""Update the linked Lead on Draft creation or save, only when needed."""
 	if doc.docstatus != 0 or doc.quotation_to != "Lead" or not doc.party_name:
 		return
 

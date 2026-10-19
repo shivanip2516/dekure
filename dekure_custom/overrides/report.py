@@ -1,10 +1,9 @@
-from collections import defaultdict
-
 import frappe
 from frappe import _
 from frappe.core.utils import html_to_plain_text
 from frappe.desk import reportview
 from frappe.model import get_permitted_fields
+from frappe.utils import get_datetime
 
 
 @frappe.whitelist()
@@ -62,12 +61,16 @@ def get_lead_notes(lead_names):
 	rows = frappe.get_all(
 		"CRM Note",
 		filters={"parenttype": "Lead", "parentfield": "notes", "parent": ["in", readable_leads]},
-		fields=["parent", "note"],
-		order_by="parent asc, idx asc, name asc",
+		fields=["parent", "note", "added_on", "creation", "idx", "name"],
+		order_by="parent asc, idx desc",
 	)
-	notes = defaultdict(list)
+	# added_on is the standard CRM note timestamp; legacy rows may only have creation.
+	latest = {}
+
+	def sequence(row):
+		return (get_datetime(row.added_on or row.creation or "0001-01-01"), row.idx or 0, row.name or "")
+
 	for row in rows:
-		text = html_to_plain_text(row.note).strip()
-		if text:
-			notes[row.parent].append(text)
-	return {lead: "\n\n".join(values) for lead, values in notes.items()}
+		if row.parent not in latest or sequence(row) > sequence(latest[row.parent]):
+			latest[row.parent] = row
+	return {lead: html_to_plain_text(row.note).strip() for lead, row in latest.items()}
