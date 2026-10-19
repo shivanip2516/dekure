@@ -34,7 +34,6 @@ fixtures = [
  
 
 doc_events = {
-<<<<<<< HEAD
     "*": {
         "on_update": "dekure_custom.notifications.resolve_actionable_notifications",
     },
@@ -43,7 +42,6 @@ doc_events = {
         "before_submit": "dekure_custom.api.prevent_pwa_employee_expense_claim_submission",
         "after_insert": "dekure_custom.api.link_pwa_expense_row_attachments",
         "on_update": "dekure_custom.api.link_pwa_expense_row_attachments",
-=======
     "Quotation": {
         "after_insert": "dekure_custom.events.quotation.update_lead_on_creation"
     },
@@ -52,7 +50,6 @@ doc_events = {
         "before_naming": "dekure_custom.overrides.item.before_insert_item",
         "before_insert": "dekure_custom.overrides.item.before_insert_item",
         "on_update": "dekure_custom.overrides.item.on_update_item"
->>>>>>> e5662f0dbfe399607bd8331505f71c318b2c435b
     },
     "Employee Checkin": {
         "validate": "dekure_custom.api.validate_checkin",
@@ -82,7 +79,7 @@ doc_events = {
     "Shift Assignment": {
         "before_submit": "dekure_custom.pwa_submission.prevent_employee_pwa_submission",
     },
-}
+}}
 
 doctype_js = {
     "Employee Checkin": "public/js/employee_checkin.js",
