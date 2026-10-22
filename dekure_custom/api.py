@@ -240,7 +240,8 @@ def create_checkin(log_type, selfie, latitude=None, longitude=None):
 
     try:
         _lock_employee(employee)
-        _validate_normal_punch(employee, log_type, nowdate())
+        timestamp = now_datetime()
+        _validate_checkin_has_shift(employee, timestamp)
     except frappe.ValidationError as error:
         return {"ok": False, "error": str(error)}
 
@@ -259,7 +260,7 @@ def create_checkin(log_type, selfie, latitude=None, longitude=None):
         "doctype": "Employee Checkin",
         "employee": employee,
         "log_type": log_type,
-        "time": now_datetime(),
+        "time": timestamp,
         "custom_selfie": photo.file_url,
         "custom_checkin_source": "PWA Selfie App",
         "latitude": latitude,
@@ -267,7 +268,9 @@ def create_checkin(log_type, selfie, latitude=None, longitude=None):
     })
     checkin.insert(ignore_permissions=True)
 
-    return {"ok": True}
+    from dekure_custom.attendance import get_checkout_attendance_status
+
+    return {"ok": True, "checkin": checkin.name, **get_checkout_attendance_status(checkin)}
 
 
 @frappe.whitelist()
@@ -313,10 +316,15 @@ def get_missed_punch_status():
         if previous_open_checkout
         else None,
     }
-    if today_checkout:
+    latest_pwa_logs = frappe.get_all(
+        "Employee Checkin",
+        filters={"employee": employee, "custom_checkin_source": "PWA Selfie App"},
+        fields=["name"], order_by="time desc", limit=1,
+    )
+    if latest_pwa_logs:
         from dekure_custom.attendance import get_checkout_attendance_status
 
-        checkout = frappe.get_doc("Employee Checkin", today_checkout.name)
+        checkout = frappe.get_doc("Employee Checkin", latest_pwa_logs[0].name)
         status.update(get_checkout_attendance_status(checkout))
     else:
         status["attendance_processing_status"] = None
@@ -803,9 +811,10 @@ def _validate_pwa_punch_sequence(doc, exclude_checkin=None):
     }
     if exclude_checkin:
         filters["name"] = ["!=", exclude_checkin]
-    logs = frappe.get_all(
-        "Employee Checkin", filters=filters, fields=["name", "log_type", "time"], order_by="time asc"
+    query = frappe.get_all(
+        "Employee Checkin", filters=filters, fields=["name", "log_type", "time"], order_by="time asc", run=False
     )
+    logs = query.for_update().run(as_dict=True)
     last_log = logs[-1] if logs else None
     if doc.log_type == "IN" and last_log and last_log.log_type != "OUT":
         frappe.throw(_("Check out before checking in again."))
@@ -1497,7 +1506,22 @@ def validate_checkin(doc, method):
 
     attendance_date = getdate(doc.time or now_datetime())
     _lock_employee(doc.employee)
-    if doc.get("custom_checkin_source") == "PWA Selfie App" and doc.shift and doc.shift_start:
+    if doc.get("custom_checkin_source") == "PWA Selfie App":
+        if doc.is_new() and frappe.db.get_value("Employee", doc.employee, "user_id") != frappe.session.user:
+            frappe.throw(_("You can only record PWA attendance for yourself."), frappe.PermissionError)
+        if doc.is_new() and doc.attendance:
+            frappe.throw(_("PWA attendance links are managed by the server."), frappe.PermissionError)
+        if not doc.shift or not doc.shift_start:
+            frappe.throw(_("A valid shift is required to record PWA attendance."))
+        if doc.is_new() and cint(doc.skip_auto_attendance):
+            frappe.throw(_("PWA punches cannot skip attendance processing."))
+        shift_date = getdate(doc.shift_start)
+        unresolved = _unresolved_open_checkout_date(doc.employee, before_date=shift_date)
+        if doc.log_type == "IN" and unresolved:
+            frappe.throw(_("Complete the missed check-out for {0} before checking in.").format(unresolved))
+        request_type = MISSED_CHECKIN if doc.log_type == "IN" else MISSED_CHECKOUT
+        if _has_pending_request(doc.employee, shift_date, request_type):
+            frappe.throw(_("A missed-punch request for this shift date is awaiting approval."))
         _validate_pwa_punch_sequence(doc, exclude_checkin=doc.name if not doc.is_new() else None)
         return
     _validate_normal_punch(

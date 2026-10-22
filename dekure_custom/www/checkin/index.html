@@ -225,7 +225,8 @@
       },
       callback: function (r) {
         if (r.message && r.message.ok) {
-          statusEl.innerText = "✅ " + type + " saved";
+          const attendance = r.message.attendance;
+          statusEl.innerText = "✅ " + type + " saved" + (attendance ? ` · ${attendance.status}` : "");
           currentPhoto = null;
           currentLocation = null;
           preview.style.display = 'none';
@@ -250,6 +251,10 @@
       method: 'dekure_custom.api.get_missed_punch_status',
       callback: ({ message }) => {
         if (!message) return;
+        if (message.attendance) {
+          const attendance = message.attendance;
+          statusEl.innerText = `${attendance.status} · IN: ${attendance.in_time || '—'} · OUT: ${attendance.out_time || '—'}`;
+        }
         missedPunch.style.display = 'block';
         missedCheckoutDate = message.missed_checkout_date;
         missedCheckinBtn.style.display = message.can_request_checkin ? 'inline-block' : 'none';
@@ -308,5 +313,6 @@
   // perform an initial permission check to give the user actionable feedback
   checkCameraPermission();
   loadMissedPunchStatus();
+  frappe.realtime.on('dekure_attendance_processed', () => loadMissedPunchStatus());
 </script>
 {% endblock %}

@@ -54,7 +54,7 @@ doc_events = {
     },
     "Employee Checkin": {
         "validate": "dekure_custom.api.validate_checkin",
-        "after_insert": "dekure_custom.attendance.enqueue_pwa_checkout_attendance",
+        "after_insert": "dekure_custom.attendance.process_pwa_punch_attendance",
     },
     "PWA Notification": {
         "before_insert": "dekure_custom.notifications.classify_pwa_notification",
@@ -93,6 +93,11 @@ doctype_list_js = {
 }
 
 override_whitelisted_methods = {
+    "hrms.api.get_attendance_calendar_events": "dekure_custom.attendance.get_attendance_calendar_events",
+    "hrms.api.get_leave_balance_map": "dekure_custom.leave_reservations.get_leave_balance_map",
+    "hrms.hr.doctype.leave_application.leave_application.get_leave_balance_on": "dekure_custom.leave_reservations.get_leave_balance_on",
+    "hrms.hr.doctype.leave_application.leave_application.get_leave_details": "dekure_custom.leave_reservations.get_leave_details",
+    "hrms.hr.doctype.leave_application.leave_application.get_leave_metrics_and_details": "dekure_custom.leave_reservations.get_leave_metrics_and_details",
     "frappe.desk.query_report.run": "dekure_custom.overrides.stock_ledger_report.run",
     "hrms.api.get_doctype_fields": "dekure_custom.api.get_pwa_doctype_fields",
     "hrms.api.get_expense_claims": "dekure_custom.api.get_expense_claims_with_dates",
@@ -103,7 +108,9 @@ override_doctype_class = {
 }
 
 extend_doctype_class = {
-    "Report": "dekure_custom.overrides.report.LeadNotesReportMixin",
+    "Shift Type": "dekure_custom.attendance.PWADraftAttendanceShiftMixin",
+    "Report": ["dekure_custom.overrides.report.LeadNotesReportMixin", "dekure_custom.leave_reservations.LeaveBalanceReportMixin"],
+    "Leave Application": "dekure_custom.leave_reservations.LeaveReservationMixin",
     "Lead": "dekure_custom.overrides.lead.DraftQuotationStatusMixin",
 }
 
