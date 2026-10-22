@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import cint, get_datetime, getdate, now_datetime
+from frappe.utils import cint, get_datetime, getdate
 
 PWA_CHECKIN_SOURCE = "PWA Selfie App"
 PROCESSING_PENDING = "Pending"
@@ -20,9 +20,19 @@ def process_pwa_punch_attendance(doc, method=None):
 		result = _create_pwa_draft_attendance(doc)
 	else:
 		result = _process_pwa_checkout_attendance(doc.name)
-	if result["status"] not in (PROCESSING_DRAFT, PROCESSING_COMPLETED):
+	expected = PROCESSING_DRAFT if doc.log_type == "IN" else PROCESSING_COMPLETED
+	if result["status"] != expected:
 		frappe.throw(result.get("message") or _("Attendance could not be updated. Please contact HR."))
 	doc.reload()
+	snapshot = get_checkout_attendance_status(doc)
+	if doc.log_type == "OUT" and (
+		snapshot.get("attendance_processing_status") != PROCESSING_COMPLETED
+		or not snapshot.get("attendance") or snapshot["attendance"].get("docstatus") != 1
+	):
+		frappe.throw(_("Check-out attendance was not submitted. Please retry or contact HR."))
+	# frappe.client.insert includes __onload in its response. Return the confirmed
+	# attendance status, hours, times and docstatus without adding database fields.
+	doc.set_onload("pwa_attendance", snapshot)
 	return result
 
 
@@ -229,6 +239,9 @@ def _get_shift_occurrence_logs(checkin, attendance=None):
 def _reconcile_early_attendance(checkin, shift, existing_attendance, shift_closed=False):
 	logs = _get_shift_occurrence_logs(checkin, existing_attendance.name)
 	_validate_pwa_draft(existing_attendance, logs)
+	if not shift_closed and (not logs or logs[-1].name != checkin.name or logs[-1].log_type != "OUT"):
+		return _result(PROCESSING_PENDING,
+			_("A later punch exists for this shift. Attendance must be finalized from the latest check-out."))
 
 	from dekure_custom.api import (
 		_calculate_attendance_from_shift_logs,
@@ -245,16 +258,11 @@ def _reconcile_early_attendance(checkin, shift, existing_attendance, shift_close
 			)
 		)
 
-	# The PWA allows more than one pair in both calculation modes and has no
-	# final-punch flag. Keep OUTs editable until the configured window closes.
-	finalize = shift_closed or not _is_intermediate_checkout(shift, checkin)
-	_update_draft_attendance(existing_attendance, logs, attendance_values, finalize)
+	# A successful PWA checkout now finalizes immediately. The shift's calculator
+	# still accounts for every eligible punch and its configured break rules.
+	_update_draft_attendance(existing_attendance, logs, attendance_values, finalize=True)
 	_notify_employee(checkin.employee, existing_attendance.name)
-	return _result(PROCESSING_COMPLETED if finalize else PROCESSING_DRAFT, attendance=existing_attendance.name)
-
-
-def _is_intermediate_checkout(shift, checkin):
-	return get_datetime(now_datetime()) < get_datetime(checkin.shift_actual_end)
+	return _result(PROCESSING_COMPLETED, attendance=existing_attendance.name)
 
 
 def _validate_pwa_draft(attendance, logs):
@@ -298,6 +306,8 @@ def _update_draft_attendance(attendance, logs, attendance_values, finalize):
 	if finalize:
 		attendance.flags.ignore_permissions = True
 		attendance.submit()
+		if attendance.docstatus != 1:
+			frappe.throw(_("Attendance {0} was not submitted. Check-out was not finalized.").format(attendance.name))
 	_link_logs(logs, attendance.name)
 
 

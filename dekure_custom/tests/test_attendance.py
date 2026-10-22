@@ -25,6 +25,7 @@ def _checkin(name="OUT-1", employee="EMP-1", **values):
 	)
 	doc.update(values)
 	doc.reload = MagicMock()
+	doc.set_onload = MagicMock()
 	return doc
 
 
@@ -243,6 +244,8 @@ class TestPWACheckoutAttendance(TestCase):
 		doc = MagicMock()
 		doc.name = "ATT-1"
 		doc.flags = frappe._dict()
+		doc.docstatus = 0
+		doc.submit.side_effect = lambda: setattr(doc, "docstatus", 1)
 		logs = [
 			frappe._dict(name="IN-1", attendance="ATT-1", shift="General"),
 			frappe._dict(name="OUT-2", attendance=None, shift="General"),
@@ -324,13 +327,28 @@ class TestPWACheckoutAttendance(TestCase):
 		self.assertIsNone(attendance.process_pwa_punch_attendance(_checkin(custom_checkin_source="Biometric")))
 		create.assert_not_called()
 
-	def test_configured_window_closure_controls_finalization_in_both_modes(self):
+	def test_checkout_submits_before_shift_window_closure_and_sync_in_both_modes(self):
+		from hrms.hr.doctype.shift_type.shift_type import ShiftType
+
 		for mode in ("First Check-in and Last Check-out", "Every Valid Check-in and Check-out"):
-			shift = _shift(working_hours_calculation_based_on=mode)
-			with patch.object(attendance, "now_datetime", return_value=datetime(2026, 10, 15, 13)):
-				self.assertTrue(attendance._is_intermediate_checkout(shift, _checkin()))
-			with patch.object(attendance, "now_datetime", return_value=datetime(2026, 10, 15, 17, 30)):
-				self.assertFalse(attendance._is_intermediate_checkout(shift, _checkin()))
+			with self.subTest(mode=mode):
+				shift = _shift(working_hours_calculation_based_on=mode,
+					last_sync_of_checkin=datetime(2026, 10, 15, 12))
+				shift.get_attendance = MethodType(ShiftType.get_attendance, shift)
+				checkout = _checkin(time=datetime(2026, 10, 15, 13))
+				logs = [_checkin(name="IN-1", log_type="IN", time=datetime(2026, 10, 15, 9), attendance="ATT-1"), checkout]
+				doc = _attendance_doc()
+				with patch.object(frappe, "get_doc", side_effect=[checkout, shift]), patch.object(
+					attendance, "_get_existing_attendance", return_value=doc), patch.object(
+					attendance, "_get_shift_occurrence_logs", return_value=logs), patch.object(
+					api, "_validate_attendance_can_be_overridden"), patch.object(attendance, "_link_logs"), patch.object(
+					attendance, "_notify_employee"):
+					result = attendance._process_pwa_checkout_attendance(checkout.name)
+				self.assertEqual(result["status"], attendance.PROCESSING_COMPLETED)
+				self.assertEqual(doc.docstatus, 1)
+				self.assertEqual(doc.status, "Half Day")
+				self.assertEqual(doc.working_hours, 4)
+				doc.submit.assert_called_once()
 
 	def test_existing_calculator_determines_final_present_half_day_absent_and_flags(self):
 		from hrms.hr.doctype.shift_type.shift_type import ShiftType
@@ -345,7 +363,7 @@ class TestPWACheckoutAttendance(TestCase):
 				with patch.object(attendance, "_get_shift_occurrence_logs", return_value=logs), patch.object(
 					api, "_validate_attendance_can_be_overridden"), patch.object(attendance, "_link_logs"), patch.object(
 					attendance, "_notify_employee"):
-					attendance._reconcile_early_attendance(logs[-1], shift, doc, shift_closed=True)
+					attendance._reconcile_early_attendance(logs[-1], shift, doc)
 				self.assertEqual(doc.status, expected)
 				self.assertEqual(doc.working_hours, hours)
 				self.assertEqual(doc.in_time, logs[0].time)
@@ -355,7 +373,7 @@ class TestPWACheckoutAttendance(TestCase):
 				doc.save.assert_called_once_with(ignore_permissions=True)
 				doc.submit.assert_called_once()
 
-	def test_multiple_pairs_keep_same_draft_and_reuse_break_calculation(self):
+	def test_final_checkout_submits_same_record_and_reuses_multiple_pair_break_calculation(self):
 		from hrms.hr.doctype.shift_type.shift_type import ShiftType
 
 		shift = _shift(working_hours_calculation_based_on="Every Valid Check-in and Check-out")
@@ -367,13 +385,13 @@ class TestPWACheckoutAttendance(TestCase):
 			_checkin(name="OUT-2", time=datetime(2026, 10, 15, 17))]
 		with patch.object(attendance, "_get_shift_occurrence_logs", return_value=logs), patch.object(
 			api, "_validate_attendance_can_be_overridden"), patch.object(attendance, "_link_logs"), patch.object(
-			attendance, "_notify_employee"), patch.object(attendance, "now_datetime", return_value=datetime(2026, 10, 15, 17)):
+			attendance, "_notify_employee"):
 			result = attendance._reconcile_early_attendance(logs[-1], shift, doc)
 		self.assertEqual(result["attendance"], "ATT-1")
-		self.assertEqual(result["status"], attendance.PROCESSING_DRAFT)
-		self.assertEqual(doc.docstatus, 0)
+		self.assertEqual(result["status"], attendance.PROCESSING_COMPLETED)
+		self.assertEqual(doc.docstatus, 1)
 		self.assertEqual(doc.working_hours, 7)
-		doc.submit.assert_not_called()
+		doc.submit.assert_called_once()
 
 	def test_submitted_and_regularized_records_are_protected(self):
 		log = _checkin(attendance="ATT-1")
@@ -495,3 +513,75 @@ class TestPWACheckoutAttendance(TestCase):
 				attendance.ensure_rollback_ready()
 			self.db.exists.return_value = False
 			self.assertIn("rollback can proceed", attendance.ensure_rollback_ready())
+
+	def test_submission_failure_is_raised_before_linking_checkout(self):
+		logs = [_checkin(name="IN-1", log_type="IN", attendance="ATT-1"), _checkin()]
+		values = ("Half Day", date(2026, 10, 15), 4, False, True,
+			datetime(2026, 10, 15, 9), datetime(2026, 10, 15, 13))
+		for fails_silently in (False, True):
+			with self.subTest(fails_silently=fails_silently):
+				doc = _attendance_doc()
+				doc.submit.side_effect = None if fails_silently else frappe.ValidationError("Submission validation failed")
+				with patch.object(attendance, "_link_logs") as link:
+					with self.assertRaises(frappe.ValidationError):
+						attendance._update_draft_attendance(doc, logs, values, finalize=True)
+				link.assert_not_called()
+				self.assertEqual(doc.docstatus, 0)
+
+	def test_pwa_checkout_response_contains_confirmed_submission_status_and_hours(self):
+		checkout = _checkin()
+		self.db.get_value.return_value = "employee@example.com"
+		confirmed = {"attendance_processing_status": attendance.PROCESSING_COMPLETED,
+			"attendance": {"name": "ATT-1", "docstatus": 1, "status": "Half Day", "working_hours": 4,
+				"in_time": datetime(2026, 10, 15, 9), "out_time": datetime(2026, 10, 15, 13)}}
+		with patch.object(attendance, "_process_pwa_checkout_attendance", return_value={
+			"status": attendance.PROCESSING_COMPLETED, "attendance": "ATT-1"}), patch.object(
+			attendance, "get_checkout_attendance_status", return_value=confirmed):
+			attendance.process_pwa_punch_attendance(checkout)
+		checkout.set_onload.assert_called_once_with("pwa_attendance", confirmed)
+
+	def test_checkout_cannot_report_success_with_draft_result_or_unsubmitted_snapshot(self):
+		self.db.get_value.return_value = "employee@example.com"
+		for processing_status, snapshot_docstatus in [(attendance.PROCESSING_DRAFT, 0), (attendance.PROCESSING_COMPLETED, 0)]:
+			checkout = _checkin()
+			with patch.object(attendance, "_process_pwa_checkout_attendance", return_value={
+				"status": processing_status}), patch.object(attendance, "get_checkout_attendance_status", return_value={
+					"attendance_processing_status": attendance.PROCESSING_COMPLETED,
+					"attendance": {"docstatus": snapshot_docstatus}}):
+				with self.assertRaises(frappe.ValidationError):
+					attendance.process_pwa_punch_attendance(checkout)
+			checkout.set_onload.assert_not_called()
+
+	def test_older_out_cannot_finalize_when_a_later_punch_exists(self):
+		checkout = _checkin()
+		for log_type in ("IN", "OUT"):
+			doc = _attendance_doc()
+			logs = [_checkin(name="IN-1", log_type="IN", attendance="ATT-1"), checkout,
+				_checkin(name="LATER-PUNCH", log_type=log_type)]
+			with patch.object(attendance, "_get_shift_occurrence_logs", return_value=logs):
+				result = attendance._reconcile_early_attendance(checkout, _shift(), doc)
+			self.assertEqual(result["status"], attendance.PROCESSING_PENDING)
+			doc.save.assert_not_called()
+			doc.submit.assert_not_called()
+
+	def test_overnight_checkout_submits_original_shift_attendance_before_window_end(self):
+		from hrms.hr.doctype.shift_type.shift_type import ShiftType
+
+		start, end = datetime(2026, 10, 15, 22), datetime(2026, 10, 16, 6)
+		shift = _shift()
+		shift.get_attendance = MethodType(ShiftType.get_attendance, shift)
+		checkout = _checkin(time=end, shift_start=start, shift_end=end,
+			shift_actual_end=datetime(2026, 10, 16, 6, 30))
+		logs = [_checkin(name="IN-1", log_type="IN", time=start, shift_start=start,
+			shift_end=end, attendance="ATT-1"), checkout]
+		doc = _attendance_doc()
+		with patch.object(frappe, "get_doc", side_effect=[checkout, shift]), patch.object(
+			attendance, "_get_existing_attendance", return_value=doc) as existing, patch.object(
+			attendance, "_get_shift_occurrence_logs", return_value=logs), patch.object(
+			api, "_validate_attendance_can_be_overridden"), patch.object(attendance, "_link_logs"), patch.object(
+			attendance, "_notify_employee"):
+			result = attendance._process_pwa_checkout_attendance(checkout.name)
+		existing.assert_called_with("EMP-1", date(2026, 10, 15), "General")
+		self.assertEqual(result["status"], attendance.PROCESSING_COMPLETED)
+		self.assertEqual((doc.docstatus, doc.status, doc.working_hours), (1, "Present", 8))
+		self.assertEqual((doc.attendance_date, doc.in_time, doc.out_time), (date(2026, 10, 15), start, end))
