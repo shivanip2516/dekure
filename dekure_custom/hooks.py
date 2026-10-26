@@ -46,12 +46,6 @@ doc_events = {
     "Quotation": {
         "on_update": "dekure_custom.events.quotation.update_lead_on_creation"
     },
-    "Item": {
-        "validate": "dekure_custom.overrides.item.validate_item",
-        "before_naming": "dekure_custom.overrides.item.before_insert_item",
-        "before_insert": "dekure_custom.overrides.item.before_insert_item",
-        "on_update": "dekure_custom.overrides.item.on_update_item"
-    },
     "Employee Checkin": {
         "validate": "dekure_custom.api.validate_checkin",
         "after_insert": "dekure_custom.attendance.process_pwa_punch_attendance",
