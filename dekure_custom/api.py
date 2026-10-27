@@ -644,6 +644,14 @@ def _get_regularization_shift_logs(checkin, existing_attendance=None):
 
 
 def _validate_attendance_can_be_overridden(attendance, logs):
+    from dekure_custom.attendance_request import is_approved_attendance_request_correction
+
+    if is_approved_attendance_request_correction(attendance):
+        frappe.throw(
+            _("Attendance {0} is protected by an approved Attendance Request and was not changed.").format(
+                attendance.name
+            )
+        )
     if attendance.docstatus == 2:
         frappe.throw(_("Attendance {0} is cancelled and was not changed.").format(attendance.name))
     if attendance.status == "On Leave" or attendance.leave_application or attendance.leave_type:

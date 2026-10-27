@@ -238,10 +238,28 @@ def _get_shift_occurrence_logs(checkin, attendance=None):
 
 def _reconcile_early_attendance(checkin, shift, existing_attendance, shift_closed=False):
 	logs = _get_shift_occurrence_logs(checkin, existing_attendance.name)
+<<<<<<< Updated upstream
 	_validate_pwa_draft(existing_attendance, logs)
 	if not shift_closed and (not logs or logs[-1].name != checkin.name or logs[-1].log_type != "OUT"):
 		return _result(PROCESSING_PENDING,
 			_("A later punch exists for this shift. Attendance must be finalized from the latest check-out."))
+=======
+	from dekure_custom.attendance_request import is_approved_attendance_request_correction
+
+	if is_approved_attendance_request_correction(existing_attendance):
+		return _result(
+			PROCESSING_EXISTING,
+			_("Attendance is protected by an approved Attendance Request and was left unchanged."),
+			attendance=existing_attendance.name,
+		)
+	if not _is_pwa_owned_attendance(existing_attendance.name, logs):
+		frappe.throw(
+			_(
+				"Attendance {0} was not created from this PWA shift occurrence and was left unchanged. "
+				"An authorized user must review the later punch."
+			).format(existing_attendance.name)
+		)
+>>>>>>> Stashed changes
 
 	from dekure_custom.api import (
 		_calculate_attendance_from_shift_logs,

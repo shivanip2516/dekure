@@ -99,6 +99,7 @@ override_whitelisted_methods = {
 }
 
 override_doctype_class = {
+	"Attendance Request": "dekure_custom.attendance_request.DekureAttendanceRequest",
 }
 
 extend_doctype_class = {
