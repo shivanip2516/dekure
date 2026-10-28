@@ -87,6 +87,7 @@ doctype_list_js = {
 }
 
 override_whitelisted_methods = {
+    "frappe.desk.reportview.export_query": "dekure_custom.expense_claim_export.export_query",
     "hrms.api.get_attendance_calendar_events": "dekure_custom.attendance.get_attendance_calendar_events",
     "hrms.api.get_leave_balance_map": "dekure_custom.leave_reservations.get_leave_balance_map",
     "hrms.hr.doctype.leave_application.leave_application.get_leave_balance_on": "dekure_custom.leave_reservations.get_leave_balance_on",

@@ -27,6 +27,8 @@
   "checkout_longitude",
   "checkout_address",
   "checkout_time",
+  "visit_location_section",
+  "visit_location_map",
   "cancelled_by",
   "cancelled_time",
   "cancellation_reason"
@@ -55,6 +57,8 @@
   {"fieldname": "checkout_longitude", "fieldtype": "Float", "label": "Check-out Longitude", "precision": "7", "read_only": 1},
   {"fieldname": "checkout_address", "fieldtype": "Small Text", "label": "Check-out Address", "read_only": 1},
   {"fieldname": "checkout_time", "fieldtype": "Datetime", "label": "Check-out Time", "read_only": 1},
+  {"fieldname": "visit_location_section", "fieldtype": "Section Break", "label": "Visit Location Map"},
+  {"fieldname": "visit_location_map", "fieldtype": "HTML", "label": "Visit Location Map", "read_only": 1},
   {"fieldname": "cancelled_by", "fieldtype": "Link", "label": "Cancelled By", "options": "User", "read_only": 1},
   {"fieldname": "cancelled_time", "fieldtype": "Datetime", "label": "Cancelled Time", "read_only": 1},
   {"fieldname": "cancellation_reason", "fieldtype": "Small Text", "label": "Cancellation Reason", "read_only": 1}
