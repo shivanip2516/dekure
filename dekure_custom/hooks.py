@@ -104,6 +104,7 @@ override_doctype_class = {
 }
 
 extend_doctype_class = {
+    "Expense Claim": "dekure_custom.notifications.ExpenseClaimNotificationCleanupMixin",
     "Shift Type": "dekure_custom.attendance.PWADraftAttendanceShiftMixin",
     "Report": ["dekure_custom.overrides.report.LeadNotesReportMixin", "dekure_custom.leave_reservations.LeaveBalanceReportMixin"],
     "Leave Application": "dekure_custom.leave_reservations.LeaveReservationMixin",
@@ -132,6 +133,7 @@ extend_doctype_class = {
 # include js, css files in header of desk.html
 # app_include_css = "/assets/dekure_custom/css/dekure_custom.css"
 # app_include_js = "/assets/dekure_custom/js/dekure_custom.js"
+app_include_js = ["/assets/dekure_custom/js/expense_claim_notifications.js"]
 
 # include js, css files in header of web template
 # web_include_css = "/assets/dekure_custom/css/dekure_custom.css"
