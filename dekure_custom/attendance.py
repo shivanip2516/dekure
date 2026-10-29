@@ -238,12 +238,6 @@ def _get_shift_occurrence_logs(checkin, attendance=None):
 
 def _reconcile_early_attendance(checkin, shift, existing_attendance, shift_closed=False):
 	logs = _get_shift_occurrence_logs(checkin, existing_attendance.name)
-<<<<<<< Updated upstream
-	_validate_pwa_draft(existing_attendance, logs)
-	if not shift_closed and (not logs or logs[-1].name != checkin.name or logs[-1].log_type != "OUT"):
-		return _result(PROCESSING_PENDING,
-			_("A later punch exists for this shift. Attendance must be finalized from the latest check-out."))
-=======
 	from dekure_custom.attendance_request import is_approved_attendance_request_correction
 
 	if is_approved_attendance_request_correction(existing_attendance):
@@ -259,7 +253,10 @@ def _reconcile_early_attendance(checkin, shift, existing_attendance, shift_close
 				"An authorized user must review the later punch."
 			).format(existing_attendance.name)
 		)
->>>>>>> Stashed changes
+	_validate_pwa_draft(existing_attendance, logs)
+	if not shift_closed and (not logs or logs[-1].name != checkin.name or logs[-1].log_type != "OUT"):
+		return _result(PROCESSING_PENDING,
+			_("A later punch exists for this shift. Attendance must be finalized from the latest check-out."))
 
 	from dekure_custom.api import (
 		_calculate_attendance_from_shift_logs,
