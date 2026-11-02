@@ -199,6 +199,19 @@
     },
     {
         "doctype": "Custom Field",
+        "name": "Salary Slip-custom_paid_leave_days",
+        "dt": "Salary Slip",
+        "fieldname": "custom_paid_leave_days",
+        "fieldtype": "Float",
+        "label": "Paid Leave Days",
+        "insert_after": "payment_days",
+        "precision": "2",
+        "read_only": 1,
+        "module": "Dekure Custom",
+        "default": "0"
+    },
+    {
+        "doctype": "Custom Field",
         "name": "Sales Invoice-custom_delivery_note_date",
         "dt": "Sales Invoice",
         "fieldname": "custom_delivery_note_date",

@@ -13,7 +13,7 @@ fixtures = [
         "dt": "Custom Field",
         "filters": [
             ["dt", "=", "Salary Slip"],
-            ["fieldname", "=", "custom_comp_off_days"]
+            ["fieldname", "in", ["custom_comp_off_days", "custom_paid_leave_days"]]
         ]
     },
     {
@@ -68,12 +68,19 @@ doc_events = {
     "Attendance Request": {
         "before_submit": "dekure_custom.pwa_submission.prevent_employee_pwa_submission",
     },
+    "Salary Slip": {
+        "validate": "dekure_custom.salary_slip.set_paid_leave_days",
+    },
     "Shift Request": {
         "before_submit": "dekure_custom.pwa_submission.prevent_employee_pwa_submission",
     },
     "Shift Assignment": {
         "before_submit": "dekure_custom.pwa_submission.prevent_employee_pwa_submission",
     },
+}
+
+jinja = {
+    "methods": ["dekure_custom.salary_slip.get_paid_leave_days"],
 }
 
 doctype_js = {
@@ -98,6 +105,8 @@ override_whitelisted_methods = {
     "hrms.api.get_expense_claims": "dekure_custom.api.get_expense_claims_with_dates",
     "hrms.api.get_unread_notifications_count": "dekure_custom.notifications.get_active_unread_notifications_count",
 }
+
+after_request = ["dekure_custom.pwa_calendar.inject_attendance_calendar_script"]
 
 override_doctype_class = {
 	"Attendance Request": "dekure_custom.attendance_request.DekureAttendanceRequest",

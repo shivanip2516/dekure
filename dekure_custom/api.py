@@ -404,9 +404,12 @@ def review_missed_punch_request(name, action, rejection_reason=None):
     _lock_employee(request.employee)
     if action == "Approve":
         attendance_date = getdate(request.attendance_date)
-        requested_time = get_time(request.requested_time)
-        if not requested_time:
+        if not request.requested_time:
             frappe.throw(_("No requested punch time is configured for this request."))
+        try:
+            requested_time = get_time(request.requested_time)
+        except (TypeError, ValueError):
+            frappe.throw(_("No valid requested punch time is configured for this request."))
         _validate_requested_punch_time(
             request.employee, attendance_date, request.request_type, requested_time
         )
@@ -564,6 +567,13 @@ def _reconcile_regularized_attendance(checkin):
     if not shift.should_mark_attendance(checkin.employee, attendance_date):
         return
 
+    if existing_attendance and _is_approved_attendance_request_correction(existing_attendance):
+        # A legacy regularization may have been pending before the Attendance was
+        # corrected through a submitted Attendance Request. Keep that correction
+        # authoritative; only attach the missing punch evidence to the same row.
+        _link_logs_to_existing_attendance(existing_attendance, logs)
+        return
+
     attendance_values = _calculate_attendance_from_shift_logs(shift, logs, attendance_date, checkin.employee)
 
     if existing_attendance:
@@ -644,9 +654,7 @@ def _get_regularization_shift_logs(checkin, existing_attendance=None):
 
 
 def _validate_attendance_can_be_overridden(attendance, logs):
-    from dekure_custom.attendance_request import is_approved_attendance_request_correction
-
-    if is_approved_attendance_request_correction(attendance):
+    if _is_approved_attendance_request_correction(attendance):
         frappe.throw(
             _("Attendance {0} is protected by an approved Attendance Request and was not changed.").format(
                 attendance.name
@@ -688,6 +696,25 @@ def _override_existing_attendance(attendance, logs, attendance_values):
     if updates:
         frappe.db.set_value("Attendance", attendance.name, updates, update_modified=True)
 
+    _link_logs_to_existing_attendance(attendance, logs)
+    attendance.status = attendance_status
+    attendance.attendance_date = attendance_date
+    attendance.working_hours = working_hours
+    attendance.in_time = in_time
+    attendance.out_time = out_time
+    attendance.late_entry = late_entry
+    attendance.early_exit = early_exit
+    attendance.shift = logs[0].shift
+
+
+def _is_approved_attendance_request_correction(attendance):
+    from dekure_custom.attendance_request import is_approved_attendance_request_correction
+
+    return is_approved_attendance_request_correction(attendance)
+
+
+def _link_logs_to_existing_attendance(attendance, logs):
+    """Idempotently attach shift evidence without changing protected Attendance fields."""
     unlinked_log_names = [log.name for log in logs if log.attendance != attendance.name]
     if unlinked_log_names:
         frappe.db.set_value(
@@ -700,14 +727,6 @@ def _override_existing_attendance(attendance, logs, attendance_values):
         for log in logs:
             if log.name in unlinked_log_names:
                 log.attendance = attendance.name
-    attendance.status = attendance_status
-    attendance.attendance_date = attendance_date
-    attendance.working_hours = working_hours
-    attendance.in_time = in_time
-    attendance.out_time = out_time
-    attendance.late_entry = late_entry
-    attendance.early_exit = early_exit
-    attendance.shift = logs[0].shift
 
 
 def _attendance_field_matches(attendance, field, value):

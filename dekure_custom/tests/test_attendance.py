@@ -1,5 +1,6 @@
+import sys
 from datetime import date, datetime
-from types import MethodType
+from types import MethodType, ModuleType
 from unittest import TestCase
 from unittest.mock import MagicMock, call, patch
 
@@ -411,17 +412,25 @@ class TestPWACheckoutAttendance(TestCase):
 		self.assertEqual(result["status"], attendance.PROCESSING_COMPLETED)
 		reconcile.assert_not_called()
 
-	@patch("hrms.api.get_current_employee", return_value="EMP-1")
-	@patch("hrms.api.get_attendance_calendar_events", return_value={"2026-10-15": "Holiday", "2026-10-16": "Half Day"})
 	@patch("dekure_custom.attendance.frappe.get_all")
-	def test_pwa_calendar_includes_owned_drafts_and_preserves_submitted_status(self, get_all, events, employee):
-		get_all.side_effect = [["ATT-1", "ATT-2"], [
-			frappe._dict(attendance_date=date(2026, 10, 15), status="Present"),
-			frappe._dict(attendance_date=date(2026, 10, 16), status="Present")]]
-		result = attendance.get_attendance_calendar_events("2026-10-01", "2026-10-31")
-		self.assertEqual(result, {"2026-10-15": "Present", "2026-10-16": "Half Day"})
-		for call_args in get_all.call_args_list:
-			self.assertEqual(call_args.kwargs["filters"]["employee"], "EMP-1")
+	def test_pwa_calendar_returns_actual_docstatus_and_draft_takes_priority(self, get_all):
+		get_all.return_value = [
+			frappe._dict(attendance_date=date(2026, 10, 15), status="Present", docstatus=0),
+			frappe._dict(attendance_date=date(2026, 10, 16), status="Half Day", docstatus=1),
+		]
+		hrms_api = ModuleType("hrms.api")
+		hrms_api.get_current_employee = MagicMock(return_value="EMP-1")
+		hrms_api.get_attendance_calendar_events = MagicMock(return_value={
+			"2026-10-15": "Holiday", "2026-10-16": "Half Day",
+		})
+		with patch.dict(sys.modules, {"hrms.api": hrms_api}):
+			result = attendance.get_attendance_calendar_events("2026-10-01", "2026-10-31")
+		self.assertEqual(result, {
+			"2026-10-15": {"status": "Present", "docstatus": 0},
+			"2026-10-16": {"status": "Half Day", "docstatus": 1},
+		})
+		self.assertEqual(get_all.call_args.kwargs["filters"]["employee"], "EMP-1")
+		self.assertEqual(get_all.call_args.kwargs["filters"]["docstatus"], ["in", [0, 1]])
 
 	def test_scheduler_finalizes_each_owned_draft_once_and_keeps_standard_processing(self):
 		class Parent:

@@ -443,18 +443,23 @@ def get_attendance_calendar_events(from_date, to_date):
 
 	events = standard_events(from_date, to_date)
 	employee = get_current_employee()
-	logs = frappe.get_all("Employee Checkin", filters={
-		"employee": employee, "custom_checkin_source": PWA_CHECKIN_SOURCE,
-		"attendance": ["is", "set"],
-		"shift_start": ["between", [f"{from_date} 00:00:00", f"{to_date} 23:59:59"]],
-	}, pluck="attendance")
-	if logs:
-		for doc in frappe.get_all("Attendance", filters={"name": ["in", logs],
-			"employee": employee, "docstatus": 0,
-			"attendance_date": ["between", [from_date, to_date]]}, fields=["attendance_date", "status"]):
-			date = str(doc.attendance_date)
-			if date not in events or events[date] == "Holiday":
-				events[date] = doc.status
+	attendance = frappe.get_all(
+		"Attendance",
+		filters={
+			"employee": employee,
+			"attendance_date": ["between", [from_date, to_date]],
+			"docstatus": ["in", [0, 1]],
+		},
+		fields=["attendance_date", "status", "docstatus"],
+	)
+	# A draft wins if historical data contains more than one active record for a
+	# date. Cancelled records are deliberately excluded and retain HRMS handling.
+	attendance.sort(key=lambda doc: doc.docstatus, reverse=True)
+	for doc in attendance:
+		events[str(doc.attendance_date)] = {
+			"status": doc.status,
+			"docstatus": doc.docstatus,
+		}
 	return events
 
 
