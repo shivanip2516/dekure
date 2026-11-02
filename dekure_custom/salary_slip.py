@@ -3,6 +3,23 @@ from frappe.utils import add_days, cint, date_diff, flt, getdate
 
 
 PAID_LEAVE_FIELD = "custom_paid_leave_days"
+WEEKOFF_FIELD = "custom_weekoff_days"
+HOLIDAY_FIELD = "custom_holiday_days"
+
+
+def set_salary_slip_display_days(doc, method=None):
+	"""Populate informational leave and holiday fields on draft Salary Slips."""
+	if cint(doc.docstatus) != 0 or not (doc.employee and doc.start_date and doc.end_date):
+		return
+
+	set_paid_leave_days(doc)
+	holiday_breakdown = get_salary_slip_holiday_breakdown(
+		doc.employee,
+		doc.start_date,
+		doc.end_date,
+	)
+	setattr(doc, WEEKOFF_FIELD, holiday_breakdown.weekoff_days)
+	setattr(doc, HOLIDAY_FIELD, holiday_breakdown.holiday_days)
 
 
 def set_paid_leave_days(doc, method=None):
@@ -83,3 +100,77 @@ def get_paid_leave_days(employee, start_date, end_date):
 			paid_days_by_date[leave_date] = max(flt(leave_days), paid_days_by_date.get(leave_date, 0.0))
 
 	return flt(sum(paid_days_by_date.values()))
+
+
+def get_salary_slip_holiday_breakdown(employee, start_date, end_date):
+	"""Return non-overlapping weekly-off and holiday dates for a payroll period."""
+	result = frappe._dict(
+		holiday_list_ranges=[],
+		weekoff_dates=[],
+		holiday_dates=[],
+		weekoff_days=0.0,
+		holiday_days=0.0,
+	)
+	if not employee or not start_date or not end_date:
+		return result
+
+	start_date, end_date = getdate(start_date), getdate(end_date)
+	if start_date > end_date:
+		return result
+
+	from hrms.utils.holiday_list import (
+		fill_employee_holiday_list_date_gaps_with_company_holiday_list,
+		get_assigned_holiday_lists_to_employee_and_company,
+	)
+
+	company = frappe.db.get_value("Employee", employee, "company")
+	assigned_to = [employee]
+	if company:
+		assigned_to.append(company)
+
+	assignment_map = get_assigned_holiday_lists_to_employee_and_company(
+		assigned_to,
+		start_date,
+		end_date,
+	)
+	ranges = fill_employee_holiday_list_date_gaps_with_company_holiday_list(
+		assignment_map.get(employee, []),
+		assignment_map.get(company, []) if company else [],
+		start_date,
+		end_date,
+	)
+	if not ranges:
+		return result
+
+	holiday_lists = list({row["holiday_list"] for row in ranges})
+	holiday_rows = frappe.get_all(
+		"Holiday",
+		filters={
+			"parent": ["in", holiday_lists],
+			"holiday_date": ["between", [start_date, end_date]],
+		},
+		fields=["parent", "holiday_date", "weekly_off"],
+	)
+
+	# A weekly-off marker wins if legacy or overlapping rows classify the same
+	# date differently. This keeps each calendar date in exactly one count.
+	weekly_off_by_date = {}
+	for date_range in ranges:
+		range_start = max(getdate(date_range["from_date"]), start_date)
+		range_end = min(getdate(date_range["to_date"]), end_date)
+		for holiday in holiday_rows:
+			holiday_date = getdate(holiday.holiday_date)
+			if (
+				holiday.parent == date_range["holiday_list"]
+				and range_start <= holiday_date <= range_end
+			):
+				weekly_off_by_date[holiday_date] = bool(
+					weekly_off_by_date.get(holiday_date) or cint(holiday.weekly_off)
+				)
+
+	result.holiday_list_ranges = ranges
+	result.weekoff_dates = sorted(date for date, is_weekoff in weekly_off_by_date.items() if is_weekoff)
+	result.holiday_dates = sorted(date for date, is_weekoff in weekly_off_by_date.items() if not is_weekoff)
+	result.weekoff_days = flt(len(result.weekoff_dates))
+	result.holiday_days = flt(len(result.holiday_dates))
+	return result

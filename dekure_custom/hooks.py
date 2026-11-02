@@ -13,7 +13,7 @@ fixtures = [
         "dt": "Custom Field",
         "filters": [
             ["dt", "=", "Salary Slip"],
-            ["fieldname", "in", ["custom_comp_off_days", "custom_paid_leave_days"]]
+            ["fieldname", "in", ["custom_comp_off_days", "custom_paid_leave_days", "custom_weekoff_days", "custom_holiday_days"]]
         ]
     },
     {
@@ -69,7 +69,7 @@ doc_events = {
         "before_submit": "dekure_custom.pwa_submission.prevent_employee_pwa_submission",
     },
     "Salary Slip": {
-        "validate": "dekure_custom.salary_slip.set_paid_leave_days",
+        "validate": "dekure_custom.salary_slip.set_salary_slip_display_days",
     },
     "Shift Request": {
         "before_submit": "dekure_custom.pwa_submission.prevent_employee_pwa_submission",
@@ -80,7 +80,10 @@ doc_events = {
 }
 
 jinja = {
-    "methods": ["dekure_custom.salary_slip.get_paid_leave_days"],
+    "methods": [
+        "dekure_custom.salary_slip.get_paid_leave_days",
+        "dekure_custom.salary_slip.get_salary_slip_holiday_breakdown",
+    ],
 }
 
 doctype_js = {
