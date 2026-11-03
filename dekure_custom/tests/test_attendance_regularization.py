@@ -142,6 +142,60 @@ class TestLegacyAttendanceRegularization(TestCase):
 		validate.assert_called_once_with(attendance, logs)
 		override.assert_called_once_with(attendance, logs, ("Present",))
 
+	@patch("dekure_custom.auto_half_day_leave.apply_auto_half_day_adjustment")
+	@patch("hrms.hr.doctype.employee_checkin.employee_checkin.mark_attendance_and_link_log")
+	@patch("dekure_custom.api._calculate_attendance_from_shift_logs")
+	@patch("dekure_custom.api._get_regularization_shift_logs")
+	@patch("dekure_custom.api._get_existing_attendance", return_value=None)
+	@patch("dekure_custom.api.frappe.get_doc")
+	def test_new_regularized_half_day_gets_one_automatic_adjustment(
+		self, get_doc, get_existing, get_logs, calculate, mark, apply_adjustment
+	):
+		logs = [frappe._dict(
+			name="IN-1", employee="EMP-1", attendance=None, shift="General", offshift=0,
+			overtime_type=None,
+		)]
+		attendance = _attendance(status="Half Day", attendance_request=None)
+		get_doc.return_value = _shift()
+		get_logs.return_value = logs
+		calculate.return_value = (
+			"Half Day", date(2026, 10, 24), 4.0, False, True,
+			datetime(2026, 10, 24, 9), datetime(2026, 10, 24, 13),
+		)
+		mark.return_value = attendance
+
+		api._reconcile_regularized_attendance(_checkin())
+
+		apply_adjustment.assert_called_once_with(attendance)
+
+	@patch("dekure_custom.auto_half_day_leave.reconcile_auto_half_day_adjustment")
+	@patch("dekure_custom.api._link_logs_to_existing_attendance")
+	@patch("dekure_custom.api._attendance_already_matches", return_value=False)
+	def test_regularization_submits_eligible_draft_attendance(
+		self, already_matches, link_logs, reconcile
+	):
+		attendance = _attendance(docstatus=0, attendance_request=None)
+		attendance.flags = frappe._dict()
+		attendance.save = MagicMock()
+		attendance.submit = MagicMock(side_effect=lambda: attendance.update(docstatus=1))
+		logs = [frappe._dict(name="IN-1", attendance="ATT-1", shift="General")]
+		values = (
+			"Half Day",
+			date(2026, 10, 24),
+			4.0,
+			False,
+			True,
+			datetime(2026, 10, 24, 9),
+			datetime(2026, 10, 24, 13),
+		)
+
+		api._override_existing_attendance(attendance, logs, values)
+
+		attendance.save.assert_called_once_with(ignore_permissions=True)
+		attendance.submit.assert_called_once_with()
+		self.assertEqual(attendance.docstatus, 1)
+		reconcile.assert_called_once_with(attendance, "Half Day")
+
 	@patch("dekure_custom.api._is_approved_attendance_request_correction", return_value=True)
 	def test_general_override_protection_remains_effective(self, protected):
 		with self.assertRaisesRegex(frappe.ValidationError, "protected by an approved Attendance Request"):

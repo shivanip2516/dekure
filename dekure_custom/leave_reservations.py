@@ -193,12 +193,24 @@ class LeaveReservationMixin:
 			frappe.db.get_value("Employee", self.employee, "name", for_update=True)
 		previous = self.get_doc_before_save()
 		changed = not previous or previous.status != self.status
-		if self.status in ("Approved", "Rejected") and changed:
+		is_auto_half_day = bool(
+			self.get("custom_is_auto_half_day_adjustment")
+			and self.flags.get("dekure_auto_half_day_adjustment")
+		)
+		if self.status in ("Approved", "Rejected") and changed and not is_auto_half_day:
 			if not (self.has_permission("submit") or self.has_permlevel_access_to("status", permission_type="write")):
 				frappe.throw(_("Only an authorized leave approver can approve, reject or submit leave."),
 					frappe.PermissionError)
-		if self.docstatus == 1 and not self.has_permission("submit"):
+		if self.docstatus == 1 and not is_auto_half_day and not self.has_permission("submit"):
 			frappe.throw(_("You do not have permission to submit leave."), frappe.PermissionError)
+
+	def validate_for_self_approval(self):
+		if (
+			self.get("custom_is_auto_half_day_adjustment")
+			and self.flags.get("dekure_auto_half_day_adjustment")
+		):
+			return
+		return super().validate_for_self_approval()
 
 	def validate_balance_leaves(self):
 		super().validate_balance_leaves()

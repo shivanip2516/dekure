@@ -32,6 +32,10 @@ def _attendance(status="Half Day", **values):
 	doc.leave_application = None
 	doc.leave_type = None
 	doc.attendance_request = None
+	doc.half_day_status = "Absent" if status == "Half Day" else None
+	doc.custom_auto_half_day_leave_application = None
+	doc.custom_pre_request_status = None
+	doc.custom_pre_request_half_day_status = None
 	for field, value in values.items():
 		setattr(doc, field, value)
 	return doc
@@ -47,6 +51,14 @@ class TestAttendanceRequestOverride(TestCase):
 		frappe.local.message_log = []
 		frappe.local.user_date_format = "yyyy-mm-dd"
 
+	def setUp(self):
+		for patcher in (
+			patch("dekure_custom.attendance_request.get_active_auto_adjustment", return_value=None),
+			patch("dekure_custom.attendance_request.is_manual_approved_leave", return_value=None),
+		):
+			patcher.start()
+			self.addCleanup(patcher.stop)
+
 	@patch("dekure_custom.attendance_request._validate_existing_attendance")
 	def test_half_day_is_updated_in_place_to_present(self, validate):
 		doc = _attendance("Half Day")
@@ -57,9 +69,70 @@ class TestAttendanceRequestOverride(TestCase):
 		DekureAttendanceRequest.create_or_update_attendance(request, "2026-10-17")
 
 		doc.db_set.assert_called_once_with(
-			{"status": "Present", "attendance_request": "AR-1"}
+			{
+				"status": "Present",
+				"attendance_request": "AR-1",
+				"custom_pre_request_status": "Half Day",
+				"custom_pre_request_half_day_status": "Absent",
+				"custom_auto_half_day_leave_application": None,
+			}
 		)
 		doc.add_comment.assert_called_once()
+
+	@patch("dekure_custom.attendance_request.reverse_auto_half_day_adjustment")
+	@patch("dekure_custom.attendance_request._validate_existing_attendance", return_value=None)
+	@patch("dekure_custom.attendance_request.get_active_auto_adjustment")
+	def test_present_correction_reverses_only_automatic_half_day_leave(
+		self, get_adjustment, validate, reverse
+	):
+		leave = frappe._dict(name="AUTO-LEAVE-1")
+		get_adjustment.return_value = leave
+		doc = _attendance(
+			"Half Day",
+			leave_application="AUTO-LEAVE-1",
+			leave_type="Privilege Leave",
+			custom_auto_half_day_leave_application="AUTO-LEAVE-1",
+		)
+		request = _request()
+		request.add_comment = MagicMock()
+		request.get_attendance_doc = MagicMock(return_value=doc)
+		request.get_attendance_status = MagicMock(return_value="Present")
+
+		request.create_or_update_attendance("2026-10-17")
+
+		updates = doc.db_set.call_args.args[0]
+		self.assertEqual(updates["status"], "Present")
+		self.assertIsNone(updates["leave_application"])
+		self.assertIsNone(updates["leave_type"])
+		self.assertEqual(updates["custom_pre_request_status"], "Half Day")
+		reverse.assert_called_once_with(doc, request)
+		request.add_comment.assert_called_once()
+
+	@patch(
+		"dekure_custom.attendance_request.reverse_auto_half_day_adjustment",
+		side_effect=frappe.ValidationError("ledger reversal failed"),
+	)
+	@patch("dekure_custom.attendance_request._validate_existing_attendance", return_value=None)
+	@patch("dekure_custom.attendance_request.get_active_auto_adjustment")
+	def test_failed_leave_reversal_aborts_attendance_request_processing(
+		self, get_adjustment, validate, reverse
+	):
+		get_adjustment.return_value = frappe._dict(name="AUTO-LEAVE-1")
+		doc = _attendance(
+			"Half Day",
+			leave_application="AUTO-LEAVE-1",
+			leave_type="Privilege Leave",
+			custom_auto_half_day_leave_application="AUTO-LEAVE-1",
+		)
+		request = _request()
+		request.add_comment = MagicMock()
+		request.get_attendance_doc = MagicMock(return_value=doc)
+		request.get_attendance_status = MagicMock(return_value="Present")
+
+		with self.assertRaisesRegex(frappe.ValidationError, "ledger reversal failed"):
+			request.create_or_update_attendance("2026-10-17")
+
+		request.add_comment.assert_not_called()
 
 	@patch("dekure_custom.attendance_request._validate_existing_attendance")
 	def test_absent_is_updated_in_place_to_present(self, validate):
@@ -71,7 +144,13 @@ class TestAttendanceRequestOverride(TestCase):
 		DekureAttendanceRequest.create_or_update_attendance(request, "2026-10-17")
 
 		doc.db_set.assert_called_once_with(
-			{"status": "Present", "attendance_request": "AR-1"}
+			{
+				"status": "Present",
+				"attendance_request": "AR-1",
+				"custom_pre_request_status": "Absent",
+				"custom_pre_request_half_day_status": None,
+				"custom_auto_half_day_leave_application": None,
+			}
 		)
 
 	@patch("dekure_custom.attendance_request._validate_existing_attendance")
@@ -83,7 +162,14 @@ class TestAttendanceRequestOverride(TestCase):
 
 		DekureAttendanceRequest.create_or_update_attendance(request, "2026-10-17")
 
-		doc.db_set.assert_called_once_with("attendance_request", "AR-1")
+		doc.db_set.assert_called_once_with(
+			{
+				"attendance_request": "AR-1",
+				"custom_pre_request_status": "Present",
+				"custom_pre_request_half_day_status": None,
+				"custom_auto_half_day_leave_application": None,
+			}
+		)
 		doc.add_comment.assert_called_once()
 
 	@patch("dekure_custom.attendance_request._validate_existing_attendance")
@@ -168,8 +254,8 @@ class TestAttendanceRequestOverride(TestCase):
 			_validate_existing_attendance(_attendance())
 
 	@patch("dekure_custom.attendance_request._has_submitted_salary_slip", return_value=False)
-	@patch("dekure_custom.attendance_request.frappe.db.exists", return_value="LEAVE-1")
-	def test_approved_leave_blocks_override(self, db_exists, has_salary_slip):
+	@patch("dekure_custom.attendance_request.is_manual_approved_leave", return_value="LEAVE-1")
+	def test_approved_leave_blocks_override(self, manual_leave, has_salary_slip):
 		with self.assertRaises(frappe.ValidationError):
 			_validate_existing_attendance(_attendance())
 
@@ -196,3 +282,36 @@ class TestAttendanceRequestOverride(TestCase):
 
 		self.assertEqual(result["status"], pwa_attendance.PROCESSING_EXISTING)
 		self.assertEqual(result["attendance"], "ATT-1")
+
+	@patch("dekure_custom.attendance_request.apply_auto_half_day_adjustment")
+	@patch("dekure_custom.attendance_request.has_submitted_salary_slip", return_value=False)
+	@patch("dekure_custom.attendance_request.frappe.get_doc")
+	@patch("dekure_custom.attendance_request.frappe.get_all")
+	def test_cancelling_request_restores_half_day_and_reapplies_adjustment(
+		self, get_all, get_doc, has_salary_slip, apply_adjustment
+	):
+		attendance = frappe._dict(
+			name="ATT-1",
+			employee="EMP-1",
+			attendance_date=date(2026, 10, 17),
+			docstatus=1,
+			status="Present",
+			half_day_status=None,
+			attendance_request="AR-1",
+			leave_type=None,
+			leave_application=None,
+			custom_pre_request_status="Half Day",
+			custom_pre_request_half_day_status="Absent",
+		)
+		attendance.db_set = MagicMock()
+		attendance.add_comment = MagicMock()
+		get_all.return_value = [frappe._dict(name="ATT-1")]
+		get_doc.return_value = attendance
+		request = _request()
+
+		request.on_cancel()
+
+		updates = attendance.db_set.call_args.args[0]
+		self.assertEqual(updates["status"], "Half Day")
+		self.assertIsNone(updates["attendance_request"])
+		apply_adjustment.assert_called_once_with(attendance)

@@ -438,8 +438,7 @@ def review_missed_punch_request(name, action, rejection_reason=None):
             checkin.flags.attendance_regularization_request = request.name
             checkin.insert(ignore_permissions=True)
 
-        if request.request_type == MISSED_CHECKOUT:
-            _reconcile_regularized_attendance(checkin)
+        _reconcile_regularized_attendance(checkin)
 
         request.db_set(
             {
@@ -558,7 +557,7 @@ def _reconcile_regularized_attendance(checkin):
     existing_attendance = _get_existing_attendance(checkin.employee, attendance_date, checkin.shift)
     logs = _get_regularization_shift_logs(checkin, existing_attendance.name if existing_attendance else None)
     if not logs:
-        return
+        frappe.throw(_("No eligible shift logs were found after regularization."))
 
     for log in logs:
         if log.offshift or log.shift != checkin.shift:
@@ -583,9 +582,15 @@ def _reconcile_regularized_attendance(checkin):
 
     from hrms.hr.doctype.employee_checkin.employee_checkin import mark_attendance_and_link_log
 
-    mark_attendance_and_link_log(
+    attendance = mark_attendance_and_link_log(
         logs, *attendance_values, shift=shift.name, overtime_type=logs[0].get("overtime_type")
     )
+    if not attendance:
+        frappe.throw(_("Attendance could not be finalized after regularization."))
+    if attendance.status == "Half Day":
+        from dekure_custom.auto_half_day_leave import apply_auto_half_day_adjustment
+
+        apply_auto_half_day_adjustment(attendance)
 
 
 def _calculate_attendance_from_shift_logs(shift, logs, attendance_date, employee):
@@ -662,8 +667,27 @@ def _validate_attendance_can_be_overridden(attendance, logs):
         )
     if attendance.docstatus == 2:
         frappe.throw(_("Attendance {0} is cancelled and was not changed.").format(attendance.name))
-    if attendance.status == "On Leave" or attendance.leave_application or attendance.leave_type:
+    from dekure_custom.auto_half_day_leave import (
+        get_active_auto_adjustment,
+        is_manual_approved_leave,
+    )
+
+    auto_adjustment = get_active_auto_adjustment(attendance.name, for_update=True)
+    if attendance.status == "On Leave" or (
+        (attendance.leave_application or attendance.leave_type) and not auto_adjustment
+    ):
         frappe.throw(_("Attendance {0} is linked to leave and was not changed.").format(attendance.name))
+    manual_leave = is_manual_approved_leave(
+        attendance.employee,
+        attendance.attendance_date,
+        exclude=auto_adjustment.name if auto_adjustment else None,
+    )
+    if manual_leave:
+        frappe.throw(
+            _("Attendance {0} conflicts with approved Leave Application {1} and was not changed.").format(
+                attendance.name, manual_leave
+            )
+        )
     if _has_submitted_salary_slip(attendance.employee, attendance.attendance_date):
         frappe.throw(
             _("Attendance {0} falls inside a submitted Salary Slip period and was not changed.").format(
@@ -676,6 +700,17 @@ def _validate_attendance_can_be_overridden(attendance, logs):
 
 def _override_existing_attendance(attendance, logs, attendance_values):
     if _attendance_already_matches(attendance, logs, attendance_values):
+        if attendance.docstatus == 0:
+            attendance.save(ignore_permissions=True)
+            attendance.flags.ignore_permissions = True
+            attendance.submit()
+            if attendance.docstatus != 1:
+                frappe.throw(
+                    _("Attendance {0} was not submitted after regularization.").format(attendance.name)
+                )
+        from dekure_custom.auto_half_day_leave import reconcile_auto_half_day_adjustment
+
+        reconcile_auto_half_day_adjustment(attendance, attendance_values[0])
         return
 
     attendance_status, attendance_date, working_hours, late_entry, early_exit, in_time, out_time = attendance_values
@@ -693,7 +728,16 @@ def _override_existing_attendance(attendance, logs, attendance_values):
         for field, value in values.items()
         if not _attendance_field_matches(attendance, field, value)
     }
-    if updates:
+    if attendance.docstatus == 0:
+        attendance.update(values)
+        attendance.save(ignore_permissions=True)
+        attendance.flags.ignore_permissions = True
+        attendance.submit()
+        if attendance.docstatus != 1:
+            frappe.throw(
+                _("Attendance {0} was not submitted after regularization.").format(attendance.name)
+            )
+    elif updates:
         frappe.db.set_value("Attendance", attendance.name, updates, update_modified=True)
 
     _link_logs_to_existing_attendance(attendance, logs)
@@ -705,6 +749,10 @@ def _override_existing_attendance(attendance, logs, attendance_values):
     attendance.late_entry = late_entry
     attendance.early_exit = early_exit
     attendance.shift = logs[0].shift
+
+    from dekure_custom.auto_half_day_leave import reconcile_auto_half_day_adjustment
+
+    reconcile_auto_half_day_adjustment(attendance, attendance_status)
 
 
 def _is_approved_attendance_request_correction(attendance):

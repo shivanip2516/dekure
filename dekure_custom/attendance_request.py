@@ -4,6 +4,17 @@ from frappe.utils import format_date, get_link_to_form
 
 from hrms.hr.doctype.attendance_request.attendance_request import AttendanceRequest
 
+from dekure_custom.auto_half_day_leave import (
+	ATTENDANCE_AUTO_LEAVE,
+	PRE_REQUEST_HALF_DAY_STATUS,
+	PRE_REQUEST_STATUS,
+	apply_auto_half_day_adjustment,
+	get_active_auto_adjustment,
+	has_submitted_salary_slip,
+	is_manual_approved_leave,
+	reverse_auto_half_day_adjustment,
+)
+
 
 class DekureAttendanceRequest(AttendanceRequest):
 	"""Attendance Request processing with safe correction of existing Attendance."""
@@ -75,11 +86,13 @@ class DekureAttendanceRequest(AttendanceRequest):
 			return super().create_or_update_attendance(date)
 
 		status = self.get_attendance_status(date)
-		_validate_existing_attendance(doc)
+		auto_adjustment = get_active_auto_adjustment(doc.name, for_update=True)
+		payroll_reconciliation = _validate_existing_attendance(doc, auto_adjustment)
+		original_state = _get_original_state_updates(doc)
 
 		if doc.status == status:
 			if doc.attendance_request != self.name:
-				doc.db_set("attendance_request", self.name)
+				doc.db_set({"attendance_request": self.name, **original_state})
 				doc.add_comment(
 					comment_type="Info",
 					text=_("Attendance status {0} confirmed via approved Attendance Request {1}").format(
@@ -90,14 +103,44 @@ class DekureAttendanceRequest(AttendanceRequest):
 			return
 
 		old_status = doc.status
-		updates = {"status": status, "attendance_request": self.name}
+		updates = {"status": status, "attendance_request": self.name, **original_state}
 		if status == "Half Day":
 			updates["half_day_status"] = "Absent"
+		elif auto_adjustment:
+			updates.update(
+				{
+					ATTENDANCE_AUTO_LEAVE: None,
+					"leave_type": None,
+					"leave_application": None,
+					"half_day_status": None,
+					"modify_half_day_status": 0,
+				}
+			)
 
 		# db_set is the supported update mechanism used by HRMS itself for a
 		# submitted Attendance correction. It is deliberately reached only after
 		# permission, leave, payroll, status, and row-lock checks above.
 		doc.db_set(updates)
+		for field, value in updates.items():
+			setattr(doc, field, value)
+		if auto_adjustment and status != "Half Day":
+			reverse_auto_half_day_adjustment(doc, self)
+			self.add_comment(
+				comment_type="Info",
+				text=_("Reversed automatic Leave Application {0} after correcting Attendance {1} to {2}.").format(
+					get_link_to_form("Leave Application", auto_adjustment.name),
+					get_link_to_form("Attendance", doc.name),
+					frappe.bold(status),
+				),
+			)
+		if payroll_reconciliation:
+			frappe.msgprint(
+				_("Submitted Salary Slip {0} was not changed. Payroll reconciliation may be required.").format(
+					get_link_to_form("Salary Slip", payroll_reconciliation)
+				),
+				title=_("Payroll Reconciliation Required"),
+				indicator="orange",
+			)
 		doc.add_comment(
 			comment_type="Info",
 			text=_("Changed the status from {0} to {1} via approved Attendance Request {2}").format(
@@ -116,27 +159,94 @@ class DekureAttendanceRequest(AttendanceRequest):
 			title=_("Attendance Updated"),
 		)
 
+	def has_leave_record(self, attendance_date):
+		"""Ignore only Dekure's automatic half-day application during correction."""
+		filters = {
+			"employee": self.employee,
+			"docstatus": 1,
+			"from_date": ("<=", attendance_date),
+			"to_date": (">=", attendance_date),
+			"status": "Approved",
+		}
+		if self.half_day_date == attendance_date:
+			filters["half_day"] = 0
+		applications = frappe.get_all(
+			"Leave Application",
+			filters=filters,
+			fields=["name", "custom_is_auto_half_day_adjustment"],
+		)
+		return next(
+			(
+				row.name
+				for row in applications
+				if not row.get("custom_is_auto_half_day_adjustment")
+			),
+			None,
+		)
 
-def _validate_existing_attendance(attendance):
+	def on_cancel(self):
+		attendance_list = frappe.get_all(
+			"Attendance",
+			{"employee": self.employee, "attendance_request": self.name, "docstatus": 1},
+			fields=["name"],
+		)
+		for row in attendance_list:
+			attendance = frappe.get_doc("Attendance", row.name)
+			previous_status = attendance.get(PRE_REQUEST_STATUS)
+			if not previous_status:
+				attendance.cancel()
+				continue
+
+			if has_submitted_salary_slip(attendance.employee, attendance.attendance_date):
+				frappe.msgprint(
+					_("A submitted Salary Slip covers {0}. It was not changed and payroll reconciliation may be required.").format(
+						frappe.bold(format_date(attendance.attendance_date))
+					),
+					title=_("Payroll Reconciliation Required"),
+					indicator="orange",
+				)
+
+			previous_half_day_status = attendance.get(PRE_REQUEST_HALF_DAY_STATUS)
+			updates = {
+				"status": previous_status,
+				"half_day_status": previous_half_day_status,
+				"attendance_request": None,
+				"leave_type": None,
+				"leave_application": None,
+				ATTENDANCE_AUTO_LEAVE: None,
+				PRE_REQUEST_STATUS: None,
+				PRE_REQUEST_HALF_DAY_STATUS: None,
+			}
+			attendance.db_set(updates)
+			for field, value in updates.items():
+				setattr(attendance, field, value)
+			if previous_status == "Half Day":
+				apply_auto_half_day_adjustment(attendance)
+			attendance.add_comment(
+				comment_type="Info",
+				text=_("Restored status {0} after cancellation of Attendance Request {1}.").format(
+					frappe.bold(previous_status), get_link_to_form("Attendance Request", self.name)
+				),
+			)
+
+
+def _validate_existing_attendance(attendance, auto_adjustment=None):
 	if attendance.docstatus == 2:
 		frappe.throw(_("Attendance {0} is cancelled and was not changed.").format(attendance.name))
 
-	if attendance.status == "On Leave" or attendance.leave_application or attendance.leave_type:
+	if attendance.status == "On Leave" or (
+		(attendance.leave_application or attendance.leave_type) and not auto_adjustment
+	):
 		frappe.throw(
 			_("Attendance {0} is linked to leave and was not changed.").format(
 				get_link_to_form("Attendance", attendance.name)
 			)
 		)
 
-	leave_application = frappe.db.exists(
-		"Leave Application",
-		{
-			"employee": attendance.employee,
-			"docstatus": 1,
-			"status": "Approved",
-			"from_date": ("<=", attendance.attendance_date),
-			"to_date": (">=", attendance.attendance_date),
-		},
+	leave_application = is_manual_approved_leave(
+		attendance.employee,
+		attendance.attendance_date,
+		exclude=auto_adjustment.name if auto_adjustment else None,
 	)
 	if leave_application:
 		frappe.throw(
@@ -146,7 +256,10 @@ def _validate_existing_attendance(attendance):
 			)
 		)
 
-	if _has_submitted_salary_slip(attendance.employee, attendance.attendance_date):
+	payroll_reconciliation = _has_submitted_salary_slip(
+		attendance.employee, attendance.attendance_date
+	)
+	if payroll_reconciliation and not auto_adjustment:
 		frappe.throw(
 			_("Attendance {0} falls inside a submitted Salary Slip period and was not changed. Cancel or amend payroll before making this correction.").format(
 				get_link_to_form("Attendance", attendance.name)
@@ -159,6 +272,17 @@ def _validate_existing_attendance(attendance):
 				get_link_to_form("Attendance", attendance.name)
 			)
 		)
+	return payroll_reconciliation
+
+
+def _get_original_state_updates(attendance):
+	if getattr(attendance, PRE_REQUEST_STATUS, None):
+		return {}
+	return {
+		PRE_REQUEST_STATUS: attendance.status,
+		PRE_REQUEST_HALF_DAY_STATUS: attendance.half_day_status,
+		ATTENDANCE_AUTO_LEAVE: getattr(attendance, ATTENDANCE_AUTO_LEAVE, None),
+	}
 
 
 def _has_submitted_salary_slip(employee, attendance_date):

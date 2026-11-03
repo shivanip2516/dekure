@@ -69,3 +69,12 @@ class TestPWASubmissionProtection(UnitTestCase):
 			prevent_employee_pwa_submission(_request_doc("Visit"))
 
 		get_all.assert_not_called()
+
+	@patch("dekure_custom.pwa_submission.frappe.get_all")
+	def test_internal_automatic_half_day_leave_is_not_treated_as_employee_submission(self, get_all):
+		doc = _request_doc()
+		doc.flags = frappe._dict(dekure_auto_half_day_adjustment=True)
+
+		prevent_employee_pwa_submission(doc)
+
+		get_all.assert_not_called()

@@ -323,6 +323,10 @@ def _update_draft_attendance(attendance, logs, attendance_values, finalize):
 		attendance.submit()
 		if attendance.docstatus != 1:
 			frappe.throw(_("Attendance {0} was not submitted. Check-out was not finalized.").format(attendance.name))
+		if status == "Half Day":
+			from dekure_custom.auto_half_day_leave import apply_auto_half_day_adjustment
+
+			apply_auto_half_day_adjustment(attendance)
 	_link_logs(logs, attendance.name)
 
 

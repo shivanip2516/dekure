@@ -297,7 +297,6 @@ class TestLeaveReservations(TestCase):
 
 	def test_standard_holiday_and_half_day_calculation(self):
 		# Run HRMS's actual day calculator with only access/calendar lookup mocked.
-		self.start_patch(patch.object(reservations.standard, "is_holiday", return_value=False))
 		with patch.object(reservations.standard, "get_holidays", return_value=2):
 			self.db.get_value.return_value = 0  # exclude holidays
 			self.assertEqual(STANDARD_DAY_CALCULATOR("EMP-1", "Casual", date(2026, 4, 1), date(2026, 4, 7), 1, date(2026, 4, 1)), 4.5)

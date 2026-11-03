@@ -25,6 +25,8 @@ SUBMISSION_ERROR = "Employee requests can only be saved from the HRMS app. Submi
 
 def prevent_employee_pwa_submission(doc, method=None):
 	"""Reject submission of the current employee's request through PWA-facing APIs."""
+	if getattr(doc, "flags", None) and doc.flags.get("dekure_auto_half_day_adjustment"):
+		return
 	if doc.doctype not in EMPLOYEE_REQUEST_DOCTYPES or not _is_pwa_submission_request():
 		return
 

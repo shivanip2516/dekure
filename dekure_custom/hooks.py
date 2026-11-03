@@ -68,6 +68,10 @@ doc_events = {
     "Attendance Request": {
         "before_submit": "dekure_custom.pwa_submission.prevent_employee_pwa_submission",
     },
+    "Attendance": {
+        "on_submit": "dekure_custom.auto_half_day_leave.apply_calculated_half_day_on_submit",
+        "before_cancel": "dekure_custom.auto_half_day_leave.reverse_auto_adjustment_before_attendance_cancel",
+    },
     "Salary Slip": {
         "validate": "dekure_custom.salary_slip.set_salary_slip_display_days",
     },
@@ -119,7 +123,10 @@ extend_doctype_class = {
     "Expense Claim": "dekure_custom.notifications.ExpenseClaimNotificationCleanupMixin",
     "Shift Type": "dekure_custom.attendance.PWADraftAttendanceShiftMixin",
     "Report": ["dekure_custom.overrides.report.LeadNotesReportMixin", "dekure_custom.leave_reservations.LeaveBalanceReportMixin"],
-    "Leave Application": "dekure_custom.leave_reservations.LeaveReservationMixin",
+    "Leave Application": [
+        "dekure_custom.leave_reservations.LeaveReservationMixin",
+        "dekure_custom.auto_half_day_leave.AutoHalfDayLeaveMixin",
+    ],
     "Lead": "dekure_custom.overrides.lead.DraftQuotationStatusMixin",
 }
 

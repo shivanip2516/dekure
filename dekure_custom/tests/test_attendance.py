@@ -71,6 +71,7 @@ class TestPWACheckoutAttendance(TestCase):
 			patch.object(frappe, "get_system_settings", return_value=None),
 			patch.object(attendance, "_", side_effect=lambda value: value),
 			patch.object(api, "_", side_effect=lambda value: value),
+			patch("dekure_custom.auto_half_day_leave.apply_auto_half_day_adjustment"),
 			patch.object(frappe, "throw", side_effect=self.throw),
 		):
 			patcher.start()
