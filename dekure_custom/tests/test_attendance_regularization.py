@@ -202,17 +202,23 @@ class TestLegacyAttendanceRegularization(TestCase):
 			api._validate_attendance_can_be_overridden(_attendance(), [])
 
 	@patch("dekure_custom.api._reconcile_regularized_attendance")
+	@patch("dekure_custom.api._get_relevant_checkin")
 	@patch("dekure_custom.api._get_equivalent_checkin")
 	@patch("dekure_custom.api._validate_requested_punch_time")
 	@patch("dekure_custom.api._lock_employee")
 	@patch("dekure_custom.api.frappe.get_doc")
 	def test_existing_out_is_reused_and_pending_request_is_approved(
-		self, get_doc, lock, validate_time, get_equivalent, reconcile
+		self, get_doc, lock, validate_time, get_equivalent, get_relevant, reconcile
 	):
 		request = _regularization()
 		out = _checkin()
+		out.db_set = MagicMock()
 		get_doc.return_value = request
+		validate_time.return_value = out.time
 		get_equivalent.return_value = out
+		get_relevant.return_value = _checkin(
+			name="IN-1", log_type="IN", time=datetime(2026, 10, 24, 16, 47),
+		)
 
 		result = api.review_missed_punch_request(request.name, "Approve")
 
@@ -223,23 +229,25 @@ class TestLegacyAttendanceRegularization(TestCase):
 		self.assertEqual(result, {"ok": True, "status": request.status})
 
 	@patch("dekure_custom.api._reconcile_regularized_attendance", side_effect=frappe.ValidationError("unsafe"))
+	@patch("dekure_custom.api._get_relevant_checkin")
 	@patch("dekure_custom.api._get_equivalent_checkin")
 	@patch("dekure_custom.api._validate_coordinates", return_value=(18.5204, 73.8567))
-	@patch("dekure_custom.api._validate_checkin_has_shift")
 	@patch("dekure_custom.api._validate_missed_punch")
 	@patch("dekure_custom.api._validate_requested_punch_time")
 	@patch("dekure_custom.api._lock_employee")
 	@patch("dekure_custom.api.frappe.get_doc")
 	def test_failed_reconciliation_does_not_mark_request_approved(
-		self, get_doc, lock, validate_time, validate_missed, validate_shift,
-		validate_coordinates, get_equivalent, reconcile
+		self, get_doc, lock, validate_time, validate_missed,
+		validate_coordinates, get_equivalent, get_relevant, reconcile
 	):
 		request = _regularization()
 		out = _checkin()
 		out.flags = frappe._dict()
 		out.insert = MagicMock()
 		get_doc.side_effect = [request, out]
+		validate_time.return_value = out.time
 		get_equivalent.return_value = None
+		get_relevant.return_value = _checkin(name="IN-1", log_type="IN")
 
 		with self.assertRaisesRegex(frappe.ValidationError, "unsafe"):
 			api.review_missed_punch_request(request.name, "Approve")
@@ -271,3 +279,57 @@ class TestLegacyAttendanceRegularization(TestCase):
 	def test_missing_legacy_location_is_rejected(self):
 		with self.assertRaisesRegex(frappe.ValidationError, "valid current location"):
 			api._validate_coordinates(None, None)
+
+	@patch("dekure_custom.api._day_logs")
+	def test_same_day_checkout_outside_shift_window_is_allowed(self, day_logs):
+		day_logs.return_value = [
+			frappe._dict(log_type="IN", time=datetime(2026, 10, 23, 16, 47, 12))
+		]
+
+		result = api._validate_requested_punch_time(
+			"EMP-1", date(2026, 10, 23), api.MISSED_CHECKOUT, time(23, 55)
+		)
+
+		self.assertEqual(result, datetime(2026, 10, 23, 23, 55))
+
+	@patch("dekure_custom.api._day_logs")
+	def test_overnight_checkout_is_resolved_to_following_date(self, day_logs):
+		day_logs.return_value = [
+			frappe._dict(log_type="IN", time=datetime(2026, 10, 23, 20))
+		]
+
+		result = api._validate_requested_punch_time(
+			"EMP-1", date(2026, 10, 23), api.MISSED_CHECKOUT, time(2)
+		)
+
+		self.assertEqual(result, datetime(2026, 10, 24, 2))
+
+	def test_checkout_at_or_before_checkin_is_rejected(self):
+		for checkout in (datetime(2026, 10, 23, 16, 47), datetime(2026, 10, 23, 16, 46)):
+			with self.subTest(checkout=checkout):
+				with self.assertRaisesRegex(frappe.ValidationError, "must be after"):
+					api._validate_checkout_duration(datetime(2026, 10, 23, 16, 47), checkout)
+
+	def test_checkout_more_than_24_hours_after_checkin_is_rejected(self):
+		with self.assertRaisesRegex(frappe.ValidationError, "more than 24 hours"):
+			api._validate_checkout_duration(
+				datetime(2026, 10, 23, 16, 47), datetime(2026, 10, 24, 16, 47, 1)
+			)
+
+	def test_regularization_out_inherits_existing_in_shift_context(self):
+		source = _checkin(
+			name="IN-1", log_type="IN", time=datetime(2026, 10, 23, 20),
+			shift_start=datetime(2026, 10, 23, 9),
+		)
+		out = _checkin(
+			time=datetime(2026, 10, 24, 2), shift=None, shift_start=None, offshift=1,
+		)
+		out.flags = frappe._dict(
+			attendance_regularization_request="ARR-1", regularization_shift_source=source,
+		)
+
+		api.validate_checkin(out, "validate")
+
+		self.assertEqual(out.shift, "General")
+		self.assertEqual(out.shift_start, datetime(2026, 10, 23, 9))
+		self.assertEqual(out.offshift, 0)

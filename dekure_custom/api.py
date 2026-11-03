@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import math
 import requests
@@ -410,18 +410,18 @@ def review_missed_punch_request(name, action, rejection_reason=None):
             requested_time = get_time(request.requested_time)
         except (TypeError, ValueError):
             frappe.throw(_("No valid requested punch time is configured for this request."))
-        _validate_requested_punch_time(
+        requested_datetime = _validate_requested_punch_time(
             request.employee, attendance_date, request.request_type, requested_time
         )
         log_type = "IN" if request.request_type == MISSED_CHECKIN else "OUT"
-        requested_datetime = get_datetime(f"{attendance_date} {requested_time}")
         checkin = _get_equivalent_checkin(request.employee, requested_datetime, log_type)
+        source_checkin = None
+        if request.request_type == MISSED_CHECKOUT:
+            source_checkin = _get_relevant_checkin(request.employee, attendance_date)
         if not checkin:
             _validate_missed_punch(
                 request.employee, attendance_date, request.request_type, exclude_request=request.name
             )
-            if request.request_type == MISSED_CHECKOUT:
-                _validate_checkin_has_shift(request.employee, requested_datetime)
             latitude = longitude = None
             if request.request_type == MISSED_CHECKOUT:
                 latitude, longitude = _validate_coordinates(request.latitude, request.longitude)
@@ -436,7 +436,11 @@ def review_missed_punch_request(name, action, rejection_reason=None):
                 }
             )
             checkin.flags.attendance_regularization_request = request.name
+            if source_checkin:
+                checkin.flags.regularization_shift_source = source_checkin
             checkin.insert(ignore_permissions=True)
+        elif source_checkin:
+            _apply_regularization_shift_context(checkin, source_checkin, persist=True)
 
         _reconcile_regularized_attendance(checkin)
 
@@ -516,6 +520,43 @@ def _first_log(logs, log_type):
 def _get_existing_checkin_time(employee, attendance_date):
     checkin = _first_log(_day_logs(employee, attendance_date), "IN")
     return checkin.time if checkin else None
+
+
+def _get_relevant_checkin(employee, attendance_date):
+    logs = frappe.get_all(
+        "Employee Checkin",
+        filters={
+            "employee": employee,
+            "log_type": "IN",
+            "time": ["between", [f"{attendance_date} 00:00:00", f"{attendance_date} 23:59:59"]],
+        },
+        fields=[
+            "name", "employee", "log_type", "time", "shift", "shift_start", "shift_end",
+            "shift_actual_start", "shift_actual_end", "overtime_type", "offshift",
+        ],
+        order_by="time asc",
+        limit=1,
+    )
+    return logs[0] if logs else None
+
+
+def _apply_regularization_shift_context(checkin, source_checkin, persist=False):
+    """Keep an approved missed OUT in the same shift occurrence as its IN."""
+    if not source_checkin or source_checkin.offshift or not source_checkin.shift:
+        frappe.throw(_("The existing check-in is not linked to a valid shift."))
+
+    values = {
+        "shift": source_checkin.shift,
+        "shift_start": source_checkin.shift_start,
+        "shift_end": source_checkin.shift_end,
+        "shift_actual_start": source_checkin.shift_actual_start,
+        "shift_actual_end": source_checkin.shift_actual_end,
+        "overtime_type": source_checkin.overtime_type,
+        "offshift": 0,
+    }
+    checkin.update(values)
+    if persist:
+        checkin.db_set(values)
 
 
 def _get_equivalent_checkin(employee, timestamp, log_type):
@@ -913,12 +954,26 @@ def _validate_requested_punch_time(employee, attendance_date, request_type, requ
     logs = _day_logs(employee, attendance_date)
     if request_type == MISSED_CHECKOUT:
         checkin_time = next((log.time for log in logs if log.log_type == "IN"), None)
-        if checkin_time and requested_datetime <= get_datetime(checkin_time):
-            frappe.throw(_("Requested check-out time must be after the existing check-in."))
+        if checkin_time:
+            checkin_datetime = get_datetime(checkin_time)
+            if requested_datetime.time() == checkin_datetime.time():
+                frappe.throw(_("Requested check-out time must be after the existing check-in."))
+            if requested_datetime < checkin_datetime:
+                requested_datetime += timedelta(days=1)
+            _validate_checkout_duration(checkin_datetime, requested_datetime)
     else:
         checkout_time = next((log.time for log in logs if log.log_type == "OUT"), None)
         if checkout_time and requested_datetime >= get_datetime(checkout_time):
             frappe.throw(_("Requested check-in time must be before the existing check-out."))
+    return requested_datetime
+
+
+def _validate_checkout_duration(checkin_datetime, checkout_datetime):
+    duration = get_datetime(checkout_datetime) - get_datetime(checkin_datetime)
+    if duration <= timedelta(0):
+        frappe.throw(_("Requested check-out time must be after the existing check-in."))
+    if duration > timedelta(hours=24):
+        frappe.throw(_("Requested check-out time cannot be more than 24 hours after the existing check-in."))
 
 
 def _get_shift(employee, attendance_date):
@@ -1581,6 +1636,12 @@ def validate_checkin(doc, method):
 
     attendance_date = getdate(doc.time or now_datetime())
     _lock_employee(doc.employee)
+    flags = getattr(doc, "flags", None) or {}
+    if flags.get("attendance_regularization_request"):
+        source_checkin = flags.get("regularization_shift_source")
+        if doc.log_type == "OUT" and source_checkin:
+            _apply_regularization_shift_context(doc, source_checkin)
+        return
     if doc.get("custom_checkin_source") == "PWA Selfie App":
         if doc.is_new() and frappe.db.get_value("Employee", doc.employee, "user_id") != frappe.session.user:
             frappe.throw(_("You can only record PWA attendance for yourself."), frappe.PermissionError)
