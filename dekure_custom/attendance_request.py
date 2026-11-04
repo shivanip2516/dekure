@@ -187,7 +187,11 @@ class DekureAttendanceRequest(AttendanceRequest):
 	def on_cancel(self):
 		attendance_list = frappe.get_all(
 			"Attendance",
-			{"employee": self.employee, "attendance_request": self.name, "docstatus": 1},
+			filters={
+				"employee": self.employee,
+				"attendance_request": self.name,
+				"docstatus": 1,
+			},
 			fields=["name"],
 		)
 		for row in attendance_list:

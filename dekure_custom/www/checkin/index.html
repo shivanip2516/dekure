@@ -290,11 +290,7 @@
   }
 
   function requestMissedPunch(requestType, attendanceDate = null) {
-    frappe.prompt([
-      { fieldname: 'attendance_date', fieldtype: 'Date', label: 'Attendance Date', default: attendanceDate || frappe.datetime.get_today(), reqd: 1 },
-      { fieldname: 'requested_time', fieldtype: 'Time', label: requestType === 'Missed Check-in' ? 'Requested Check-in Time' : 'Requested Check-out Time', reqd: 1 },
-      { fieldname: 'reason', fieldtype: 'Small Text', label: 'Reason', reqd: 1 }
-    ], values => {
+    const submitRequest = values => {
       if (requestType !== 'Missed Check-out') {
         submitMissedPunchRequest(requestType, values);
         return;
@@ -305,7 +301,35 @@
         location => submitMissedPunchRequest(requestType, values, location),
         showLocationError
       );
-    }, requestType, 'Submit');
+    };
+    const dialog = frappe.prompt([
+      { fieldname: 'attendance_date', fieldtype: 'Date', label: 'Attendance Date', default: attendanceDate || frappe.datetime.get_today(), reqd: 1 },
+      {
+        fieldname: 'requested_time',
+        fieldtype: 'Time',
+        label: requestType === 'Missed Check-in' ? 'Requested Check-in Time' : 'Requested Check-out Time',
+        ...(requestType === 'Missed Check-out' ? { default: '' } : {}),
+        reqd: 1
+      },
+      { fieldname: 'reason', fieldtype: 'Small Text', label: 'Reason', reqd: 1 }
+    ], submitRequest, requestType, 'Submit');
+
+    if (requestType === 'Missed Check-out') {
+      dialog.set_value('requested_time', '');
+      dialog.get_primary_btn().off('click').on('click', () => {
+        if (!dialog.get_value('requested_time')) {
+          frappe.msgprint(__('Please enter the missed check-out time.'));
+          return;
+        }
+
+        const values = dialog.get_values();
+        if (!values) {
+          return;
+        }
+        dialog.hide();
+        submitRequest(values);
+      });
+    }
   }
 
   missedCheckinBtn.addEventListener('click', () => requestMissedPunch('Missed Check-in'));
