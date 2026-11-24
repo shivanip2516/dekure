@@ -293,16 +293,45 @@ class TestLegacyAttendanceRegularization(TestCase):
 		self.assertEqual(result, datetime(2026, 10, 23, 23, 55))
 
 	@patch("dekure_custom.api._day_logs")
-	def test_overnight_checkout_is_resolved_to_following_date(self, day_logs):
+	def test_checkout_before_checkin_is_rejected_on_selected_attendance_date(self, day_logs):
 		day_logs.return_value = [
-			frappe._dict(log_type="IN", time=datetime(2026, 10, 23, 20))
+			frappe._dict(log_type="IN", time=datetime(2026, 10, 23, 10, 19, 42))
 		]
 
-		result = api._validate_requested_punch_time(
-			"EMP-1", date(2026, 10, 23), api.MISSED_CHECKOUT, time(2)
-		)
+		with self.assertRaisesRegex(
+			frappe.ValidationError,
+			"Requested Check-Out time must be later than the existing Check-In time",
+		):
+			api._validate_requested_punch_time(
+				"EMP-1", date(2026, 10, 23), api.MISSED_CHECKOUT, time(6, 55)
+			)
 
-		self.assertEqual(result, datetime(2026, 10, 24, 2))
+	@patch("dekure_custom.api._day_logs")
+	def test_checkout_equal_to_checkin_is_rejected(self, day_logs):
+		day_logs.return_value = [
+			frappe._dict(log_type="IN", time=datetime(2026, 10, 23, 10, 19))
+		]
+
+		with self.assertRaisesRegex(
+			frappe.ValidationError,
+			"Requested Check-Out time must be later than the existing Check-In time",
+		):
+			api._validate_requested_punch_time(
+				"EMP-1", date(2026, 10, 23), api.MISSED_CHECKOUT, time(10, 19)
+			)
+
+	@patch("dekure_custom.api._day_logs")
+	def test_checkout_after_checkin_stays_on_selected_attendance_date(self, day_logs):
+		day_logs.return_value = [
+			frappe._dict(log_type="IN", time=datetime(2026, 10, 23, 10, 19, 42))
+		]
+
+		for requested_time in (time(11, 30), time(18, 55)):
+			with self.subTest(requested_time=requested_time):
+				result = api._validate_requested_punch_time(
+					"EMP-1", date(2026, 10, 23), api.MISSED_CHECKOUT, requested_time
+				)
+				self.assertEqual(result, datetime.combine(date(2026, 10, 23), requested_time))
 
 	def test_checkout_at_or_before_checkin_is_rejected(self):
 		for checkout in (datetime(2026, 10, 23, 16, 47), datetime(2026, 10, 23, 16, 46)):

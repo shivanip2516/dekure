@@ -956,10 +956,11 @@ def _validate_requested_punch_time(employee, attendance_date, request_type, requ
         checkin_time = next((log.time for log in logs if log.log_type == "IN"), None)
         if checkin_time:
             checkin_datetime = get_datetime(checkin_time)
-            if requested_datetime.time() == checkin_datetime.time():
-                frappe.throw(_("Requested check-out time must be after the existing check-in."))
-            if requested_datetime < checkin_datetime:
-                requested_datetime += timedelta(days=1)
+            if requested_datetime <= checkin_datetime:
+                frappe.throw(_(
+                    "Requested Check-Out time must be later than the existing Check-In time "
+                    "on the selected attendance date. Please enter a valid Check-Out time."
+                ))
             _validate_checkout_duration(checkin_datetime, requested_datetime)
     else:
         checkout_time = next((log.time for log in logs if log.log_type == "OUT"), None)
