@@ -48,6 +48,7 @@
   const locationInfo = document.getElementById('location-info');
   let currentPhoto = null;
   let currentLocation = null;
+  let attendanceStatus = null;
 
   async function checkCameraPermission() {
     cameraHint.innerText = '';
@@ -203,13 +204,29 @@
       statusEl.innerText = "⚠️ Location not available. Please enable location access.";
     }
 
-    setButtonsEnabled(true);
+    applyAttendanceStatus(attendanceStatus);
     statusEl.innerText = "✅ Selfie captured with location. You can now check in or check out.";
   });
+
+  function applyAttendanceStatus(message) {
+    attendanceStatus = message || null;
+    const canCheckin = Boolean(message && message.can_checkin);
+    const canCheckout = Boolean(message && message.can_checkout);
+    checkInBtn.style.display = canCheckin ? 'inline-block' : 'none';
+    checkOutBtn.style.display = canCheckout ? 'inline-block' : 'none';
+    checkInBtn.disabled = !currentPhoto || !canCheckin;
+    checkOutBtn.disabled = !currentPhoto || !canCheckout;
+  }
 
   async function sendCheckin(type) {
     if (!currentPhoto) {
       statusEl.innerText = "Please capture a selfie before checking in or out.";
+      return;
+    }
+    if (!attendanceStatus || (type === 'IN' && !attendanceStatus.can_checkin) ||
+        (type === 'OUT' && !attendanceStatus.can_checkout)) {
+      loadMissedPunchStatus();
+      statusEl.innerText = "The attendance state has changed. Please try again.";
       return;
     }
 
@@ -259,6 +276,7 @@
         missedCheckoutDate = message.missed_checkout_date;
         missedCheckinBtn.style.display = message.can_request_checkin ? 'inline-block' : 'none';
         missedCheckoutBtn.style.display = message.can_request_checkout ? 'inline-block' : 'none';
+        applyAttendanceStatus(message);
         if (message.blocked_by_checkout_date) {
           missedPunchMessage.innerText = `A check-out from ${message.blocked_by_checkout_date} is unresolved. Request a missed check-out before checking in today.`;
         } else if (!message.can_request_checkin && !message.can_request_checkout) {
@@ -337,6 +355,7 @@
   // perform an initial permission check to give the user actionable feedback
   checkCameraPermission();
   loadMissedPunchStatus();
+  window.setInterval(loadMissedPunchStatus, 60 * 1000);
   frappe.realtime.on('dekure_attendance_processed', () => loadMissedPunchStatus());
 </script>
 {% endblock %}
