@@ -80,6 +80,49 @@ class TestLegacyAttendanceRegularization(TestCase):
 	def throw(message, exc=frappe.ValidationError, **kwargs):
 		raise exc(message)
 
+	@patch("dekure_custom.api._day_logs", return_value=[])
+	@patch("dekure_custom.api._has_pending_request", return_value=False)
+	@patch("dekure_custom.api.frappe.get_all")
+	def test_checkin_is_blocked_for_unresolved_previous_checkout(self, get_all, pending, day_logs):
+		get_all.return_value = [frappe._dict(log_type="IN", time=datetime(2026, 11, 24, 9))]
+
+		with self.assertRaisesRegex(
+			frappe.ValidationError, "Complete the missed check-out for 2026-11-24 before checking in"
+		):
+			api._validate_normal_punch("EMP-1", "IN", date(2026, 11, 25))
+
+	@patch("dekure_custom.api._day_logs", return_value=[])
+	@patch("dekure_custom.api._has_pending_request")
+	@patch("dekure_custom.api.frappe.get_all")
+	def test_pending_missed_checkout_allows_current_checkin(self, get_all, pending, day_logs):
+		get_all.return_value = [frappe._dict(log_type="IN", time=datetime(2026, 11, 24, 9))]
+		pending.side_effect = lambda employee, attendance_date, request_type, exclude_request=None: (
+			request_type == api.MISSED_CHECKOUT and attendance_date == date(2026, 11, 24)
+		)
+
+		api._validate_normal_punch("EMP-1", "IN", date(2026, 11, 25))
+
+	@patch("dekure_custom.api._day_logs", return_value=[])
+	@patch("dekure_custom.api._has_pending_request", return_value=False)
+	@patch("dekure_custom.api.frappe.get_all")
+	def test_rejected_or_unrelated_request_does_not_allow_current_checkin(self, get_all, pending, day_logs):
+		get_all.return_value = [frappe._dict(log_type="IN", time=datetime(2026, 11, 24, 9))]
+
+		with self.assertRaisesRegex(frappe.ValidationError, "Complete the missed check-out"):
+			api._validate_normal_punch("EMP-1", "IN", date(2026, 11, 25))
+
+	@patch("dekure_custom.api._day_logs", return_value=[])
+	@patch("dekure_custom.api._has_pending_request", return_value=False)
+	@patch("dekure_custom.api._unresolved_open_checkout_date", return_value=None)
+	def test_checkin_without_missed_checkout_issue_is_allowed(self, unresolved, pending, day_logs):
+		api._validate_normal_punch("EMP-1", "IN", date(2026, 11, 25))
+
+	@patch("dekure_custom.api._day_logs", return_value=[frappe._dict(log_type="IN")])
+	@patch("dekure_custom.api._unresolved_open_checkout_date", return_value=None)
+	def test_duplicate_current_checkin_remains_blocked(self, unresolved, day_logs):
+		with self.assertRaisesRegex(frappe.ValidationError, "A check-in already exists"):
+			api._validate_normal_punch("EMP-1", "IN", date(2026, 11, 25))
+
 	@patch("dekure_custom.api._calculate_attendance_from_shift_logs")
 	@patch("dekure_custom.api._is_approved_attendance_request_correction", return_value=True)
 	@patch("dekure_custom.api._get_regularization_shift_logs")

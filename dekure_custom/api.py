@@ -1653,12 +1653,12 @@ def validate_checkin(doc, method):
         if doc.is_new() and cint(doc.skip_auto_attendance):
             frappe.throw(_("PWA punches cannot skip attendance processing."))
         shift_date = getdate(doc.shift_start)
-        unresolved = _unresolved_open_checkout_date(doc.employee, before_date=shift_date)
-        if doc.log_type == "IN" and unresolved:
-            frappe.throw(_("Complete the missed check-out for {0} before checking in.").format(unresolved))
-        request_type = MISSED_CHECKIN if doc.log_type == "IN" else MISSED_CHECKOUT
-        if _has_pending_request(doc.employee, shift_date, request_type):
-            frappe.throw(_("A missed-punch request for this shift date is awaiting approval."))
+        _validate_normal_punch(
+            doc.employee,
+            doc.log_type,
+            shift_date,
+            exclude_checkin=doc.name if not doc.is_new() else None,
+        )
         _validate_pwa_punch_sequence(doc, exclude_checkin=doc.name if not doc.is_new() else None)
         return
     _validate_normal_punch(
