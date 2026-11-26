@@ -99,7 +99,7 @@
         "label": "Status",
         "options": "Draft\nPending Approval\nApproved\nRejected",
         "default": "Draft",
-        "read_only": 1,
+        "read_only": 0,
         "in_list_view": 1,
         "insert_after": "reason"
     },

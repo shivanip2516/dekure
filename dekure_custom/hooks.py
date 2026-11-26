@@ -34,6 +34,12 @@ fixtures = [
  
 
 doc_events = {
+    "Prospect": {
+        "on_update": "dekure_custom.overrides.lead.update_prospect_lead_status",
+    },
+    "Opportunity": {
+        "on_update": "dekure_custom.overrides.lead.update_prospect_opportunity_leads",
+    },
     "*": {
         "on_update": "dekure_custom.notifications.resolve_actionable_notifications",
     },
@@ -129,6 +135,9 @@ extend_doctype_class = {
     ],
     "Lead": "dekure_custom.overrides.lead.DraftQuotationStatusMixin",
 }
+
+after_install = "dekure_custom.overrides.lead.ensure_prospect_status_option"
+after_migrate = "dekure_custom.overrides.lead.ensure_prospect_status_option"
 
 # Apps
 # ------------------
