@@ -329,5 +329,18 @@
         "in_list_view": 0,
         "reqd": 0,
         "read_only": 0
+    },
+    {
+        "doctype": "Custom Field",
+        "name": "ToDo-custom_completed_on",
+        "dt": "ToDo",
+        "fieldname": "custom_completed_on",
+        "fieldtype": "Datetime",
+        "label": "Completed On",
+        "insert_after": "status",
+        "hidden": 1,
+        "read_only": 1,
+        "no_copy": 1,
+        "module": "Dekure Custom"
     }
 ]

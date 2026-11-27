@@ -59,6 +59,9 @@ doc_events = {
     "PWA Notification": {
         "before_insert": "dekure_custom.notifications.classify_pwa_notification",
     },
+    "ToDo": {
+        "validate": "dekure_custom.overrides.crm_activities.set_todo_completion_timestamp",
+    },
     "Compensatory Leave Request": {
         "validate": "dekure_custom.comp_off.prepare_pwa_comp_off",
         "after_insert": "dekure_custom.comp_off.notify_pwa_comp_off_approver",
@@ -107,6 +110,8 @@ doctype_list_js = {
 }
 
 override_whitelisted_methods = {
+    "crm.api.activities.get_activities": "dekure_custom.overrides.crm_activities.get_activities",
+    "erpnext.crm.utils.get_open_activities": "dekure_custom.overrides.crm_activities.get_open_activities",
     "frappe.desk.reportview.export_query": "dekure_custom.expense_claim_export.export_query",
     "hrms.api.get_attendance_calendar_events": "dekure_custom.attendance.get_attendance_calendar_events",
     "hrms.api.get_leave_balance_map": "dekure_custom.leave_reservations.get_leave_balance_map",
